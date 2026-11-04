@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixl.js Manager</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1c1f24;--muted:#626b77;--line:#dfe3e8;--hover:#f0f3f7;--accent:#2f6fde;--accent-fg:#fff;--ok:#1f8a4c;--warn:#b26a00;--err:#c4322b;--code:#eef1f5;--shadow:0 10px 30px rgba(0,0,0,.18)}
+@media (prefers-color-scheme:dark){:root{--bg:#121417;--card:#1b1e23;--fg:#e7e9ec;--muted:#9aa3ad;--line:#2c3138;--hover:#23272d;--accent:#5b8ff0;--accent-fg:#0d1117;--ok:#4cc27e;--warn:#e0a03a;--err:#ef6b63;--code:#242931;--shadow:0 10px 30px rgba(0,0,0,.5)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:960px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:21px;margin:0}
+.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.card h2{font-size:16px;margin:0 0 10px}
+button{font:inherit;font-size:14px;padding:6px 12px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer;white-space:nowrap}
+button:hover:not(:disabled){background:var(--hover)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+button.primary:hover:not(:disabled){filter:brightness(1.08);background:var(--accent)}
+button.danger{color:var(--err)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.muted{color:var(--muted)}.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}
+.hidden{display:none!important}
+.crumbs{display:flex;flex-wrap:wrap;gap:2px;align-items:center;font-size:14px;margin:4px 0 10px}
+.crumbs a{color:var(--accent);cursor:pointer;text-decoration:none;padding:2px 4px;border-radius:4px}
+.crumbs a:hover{background:var(--hover)}
+.crumbs span.sep{color:var(--muted)}
+.tblwrap{border:1px solid var(--line);border-radius:8px;overflow:auto;max-height:62vh;position:relative}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left}
+th{position:sticky;top:0;background:var(--card);font-weight:600;color:var(--muted);font-size:12.5px;z-index:1}
+tbody tr:hover{background:var(--hover)}
+td.name{cursor:pointer;word-break:break-word}
+td.name .ic{display:inline-block;width:20px;color:var(--muted)}
+td.size,td.act{white-space:nowrap}
+td.act{text-align:right}
+td.act button{padding:3px 8px;font-size:12.5px}
+tr.hid td.name{opacity:.55}
+.badge{font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-left:6px;color:var(--muted)}
+.note{font-size:13px;color:var(--muted)}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+.usage{height:6px;background:var(--code);border-radius:4px;overflow:hidden;width:140px;display:inline-block;vertical-align:middle;margin-right:8px}
+.usage>div{height:100%;background:var(--accent)}
+#status{min-height:20px;font-size:13px;margin-top:8px}
+/* upload panel */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:10px 0}
+.stat{background:var(--code);border-radius:8px;padding:8px 10px}
+.stat b{display:block;font-size:17px}.stat span{color:var(--muted);font-size:12px}
+input[type=text],textarea{font:inherit;padding:6px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);min-width:0}
+label.chk{display:flex;gap:6px;align-items:center}
+details{margin-top:6px}summary{cursor:pointer;color:var(--muted);font-size:14px}
+.mtbl{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:6px}
+.mtbl table{font:12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.mtbl td{word-break:break-all;vertical-align:top}
+.bar{height:10px;background:var(--code);border-radius:6px;overflow:hidden;margin:10px 0 6px}
+.bar>div{height:100%;width:0;background:var(--accent);transition:width .2s}
+.picklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px 12px;max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:6px;font-size:14px}
+.picklist label{display:flex;gap:6px;align-items:baseline;padding:2px 0;cursor:pointer}
+.picklist .muted{font-size:12px;margin-left:auto;white-space:nowrap}
+.chip{display:inline-flex;align-items:center;gap:4px;background:var(--code);border-radius:999px;padding:2px 4px 2px 10px;font-size:13px}
+.chip button{border:none;background:none;padding:0 6px;font-size:14px;line-height:1;color:var(--muted)}
+#log{background:var(--code);border-radius:8px;padding:8px 10px;height:150px;overflow:auto;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;margin-top:8px}
+#drop{position:absolute;inset:0;background:color-mix(in srgb,var(--accent) 14%,transparent);border:2px dashed var(--accent);border-radius:8px;display:grid;place-items:center;font-weight:600;color:var(--fg);z-index:3;pointer-events:none}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);padding:18px;width:min(440px,calc(100vw - 32px));box-shadow:var(--shadow)}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+dialog h3{margin:0 0 10px;font-size:16px}
+dialog .fld{display:flex;flex-direction:column;gap:4px;margin:8px 0}
+dialog input[type=text],dialog textarea{width:100%}
+dialog .btns{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+dialog .msg{white-space:pre-wrap;word-break:break-word}
+@media (max-width:600px){td.size.notes,th.notes{display:none}}
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <h1>Pixl.js Manager</h1>
+    <div class="row">
+      <span id="devInfo" class="muted">Not connected</span>
+      <button class="primary" id="connect">Connect</button>
+      <button id="disconnect" class="hidden">Disconnect</button>
+    </div>
+  </div>
+
+  <div id="nobt" class="card hidden"><b class="err">This browser can't use Web Bluetooth.</b> <span class="note">Use Chrome or Edge on a computer or Android phone. The page must be opened as a local file, over https, or on localhost.</span></div>
+
+  <section class="card" id="browser">
+    <div class="row" id="toolbar">
+      <button id="btnUp" title="Up one level">↑ Up</button>
+      <button id="btnRefresh">Refresh</button>
+      <button id="btnNewFolder">New folder</button>
+      <button id="btnUpFiles">Upload files</button>
+      <button id="btnUpFolder" class="primary">Upload folder</button>
+      <button id="btnDelSel" class="danger">Delete selected</button>
+      <input type="file" id="pickFiles" multiple class="hidden">
+      <input type="file" id="pickFolder" webkitdirectory directory multiple class="hidden">
+    </div>
+    <div class="crumbs" id="crumbs"></div>
+    <div class="tblwrap" id="tblwrap">
+      <table>
+        <thead><tr><th style="width:28px"><input type="checkbox" id="selAll"></th><th>Name</th><th>Size</th><th class="notes">Notes</th><th></th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div id="emptyMsg" class="empty">Connect your Pixl.js to browse its files.</div>
+      <div id="drop" class="hidden">Drop files or folders to upload here</div>
+    </div>
+    <div id="status" class="muted"></div>
+  </section>
+
+  <section class="card hidden" id="upCard">
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">Upload</h2><button id="upClose">Close</button></div>
+    <div class="row" style="margin-top:8px">
+      <span>Upload into</span><input type="text" id="root" spellcheck="false" style="width:260px">
+    </div>
+    <div class="row" style="margin-top:10px">
+      <span class="muted">Queued:</span><span id="queue" class="row" style="gap:6px"></span>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="addFolder">+ Add another folder</button>
+      <button id="addFiles">+ Add files</button>
+      <span class="note">Or select several folders in Explorer (Ctrl+click) and drag them onto the file list.</span>
+    </div>
+    <div id="pickWrap" class="hidden" style="margin-top:10px">
+      <div class="row" style="justify-content:space-between"><b style="font-size:14px">Choose which folders to upload</b>
+        <span class="row"><button id="pickAll">All</button><button id="pickNone">None</button></span></div>
+      <div id="pickList" class="picklist"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label class="chk"><input type="checkbox" id="binOnly" checked> Only .bin files</label>
+      <label class="chk"><input type="checkbox" id="ascii"> Replace accented letters (é→e)</label>
+      <label class="chk"><input type="checkbox" id="skipExisting" checked> Skip files already on the device (same name and size)</label>
+      <label class="chk"><input type="checkbox" id="verbose"> Detailed log</label>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div id="planNotes"></div>
+    <details id="renDet"><summary>Renamed to fit the Pixl.js limits</summary><div class="mtbl"><table id="renTbl"></table></div></details>
+    <details id="skipDet"><summary>Skipped</summary><div class="mtbl"><table id="skipTbl"></table></div></details>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="start">Start upload</button>
+      <button id="stop" disabled>Stop</button>
+      <button id="verify" title="Compare these files with what's on the device, without uploading">Verify only</button>
+      <span id="progTxt" class="muted"></span>
+    </div>
+    <div class="bar"><div id="prog"></div></div>
+    <div id="spaceNote" class="note"></div>
+    <div id="log"></div>
+    <p class="note">Limits: names up to 47 bytes, full path (starting with <code>E:</code>) up to 63 bytes. If the upload stops partway, press Start again and finished files are skipped.</p>
+  </section>
+</main>
+
+<dialog id="dlg"><form method="dialog" id="dlgForm"><h3 id="dlgTitle"></h3><div id="dlgBody"></div><div class="btns"><button value="cancel" id="dlgCancel" formnovalidate>Cancel</button><button value="ok" class="primary" id="dlgOk">OK</button></div></form></dialog>
+
+<script>
+// ---- Upload planner: maps a local folder tree to Pixl.js-safe paths ----
+// Firmware/web limits: full path (incl. "E:") <= 63 bytes, any single name <= 47 bytes.
+const LIMIT_PATH = 63;
+const LIMIT_NAME = 47;
+const MIN_FILE_ROOM = 18; // bytes we always try to leave for "/" + file name under a folder
+
+const _enc = new TextEncoder();
+function blen(s) { return _enc.encode(s).length; }
+
+function truncBytes(s, max) {
+  if (blen(s) <= max) return s;
+  let out = "";
+  for (const ch of s) { if (blen(out + ch) > max) break; out += ch; }
+  return out.replace(/[\s\-_.,(&]+$/, "");
+}
+
+function deaccent(s) {
+  return s.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7e]/g, "_");
+}
+
+function cleanName(s, opts) {
+  let n = s;
+  // unzip on some systems writes "#U00e9" for non-ASCII; turn it back into the real char
+  n = n.replace(/#U([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  if (opts.asciiOnly) n = deaccent(n);
+  n = n.replace(/[\\/:*?"<>|]/g, "_").trim();
+  return n;
+}
+
+function stripTag(stem) { return stem.replace(/^\s*\[[^\]]{1,12}\]\s*/, ""); }
+
+function stripAncestorPrefix(name, ancestors) {
+  let best = name;
+  for (const a of ancestors) {
+    if (!a) continue;
+    const re = new RegExp("^" + a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b[\\s:\\-_]*", "i");
+    if (re.test(best)) {
+      let rest = best.replace(re, "").replace(/^(x|&|and|-)\s+/i, "").trim();
+      if (rest.length >= 2) best = rest;
+    }
+  }
+  return best;
+}
+
+// entries: [{ rel: "Game/Sub/file.bin", size, file }]  (rel is relative to the chosen folder)
+// opts: { root: "E:/amiibo", binOnly: true, asciiOnly: true }
+function planUpload(entries, opts) {
+  const root = opts.root.replace(/\/+$/, "");
+  // build tree
+  const tree = { name: "", children: new Map(), files: [] };
+  const skipped = [];
+  for (const e of entries) {
+    const parts = e.rel.split("/").filter(Boolean);
+    const fname = parts[parts.length - 1];
+    if (fname.startsWith(".") || parts.some(p => p.startsWith(".") || p === "__MACOSX")) { skipped.push({ rel: e.rel, why: "hidden/system file" }); continue; }
+    if (opts.binOnly && !/\.bin$/i.test(fname)) { skipped.push({ rel: e.rel, why: "not a .bin" }); continue; }
+    let node = tree;
+    for (const p of parts.slice(0, -1)) {
+      if (!node.children.has(p)) node.children.set(p, { name: p, children: new Map(), files: [] });
+      node = node.children.get(p);
+    }
+    node.files.push(e);
+  }
+
+  // longest tail (in bytes) below a dir, assuming file tags get stripped: "/sub/.../file.bin"
+  function longestTail(node) {
+    let m = 0;
+    for (const f of node.files) {
+      const fn = f.rel.split("/").pop();
+      const stem = cleanName(fn.replace(/\.bin$/i, ""), opts);
+      m = Math.max(m, 1 + Math.min(blen(stripTag(stem) + ".bin"), LIMIT_NAME));
+    }
+    for (const c of node.children.values()) m = Math.max(m, 1 + blen(cleanName(c.name, opts)) + longestTail(c));
+    return m;
+  }
+
+  const dirs = [];   // { orig, path, renamed }
+  const files = [];  // { orig, path, renamed, entry }
+
+  function walk(node, devPath, origPath, ancestors) {
+    const used = new Set();
+    const uniq = (name, ext, max) => {
+      let n = name, i = 2;
+      while (used.has((n + ext).toLowerCase())) {
+        const suf = " " + i++;
+        n = truncBytes(name, max - blen(suf)) + suf;
+      }
+      used.add((n + ext).toLowerCase());
+      return n + ext;
+    };
+
+    // sub-folders
+    for (const c of [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+      const base = cleanName(c.name, opts);
+      const tail = longestTail(c);
+      const cands = [base, stripAncestorPrefix(base, ancestors)];
+      let pick = null;
+      for (const cand of cands) {
+        if (blen(cand) <= LIMIT_NAME && blen(devPath) + 1 + blen(cand) + tail <= LIMIT_PATH) { pick = cand; break; }
+      }
+      if (!pick) {
+        const shortest = cands.reduce((a, b) => (blen(b) < blen(a) ? b : a));
+        const room = Math.min(LIMIT_NAME, LIMIT_PATH - blen(devPath) - 1 - MIN_FILE_ROOM);
+        pick = room >= 4 ? truncBytes(shortest, room) : truncBytes(shortest, Math.max(3, LIMIT_PATH - blen(devPath) - 1 - 10));
+      }
+      const name = uniq(pick, "", Math.max(blen(pick), 3));
+      const p = devPath + "/" + name;
+      const o = origPath ? origPath + "/" + c.name : c.name;
+      dirs.push({ orig: o, path: p, renamed: name !== c.name });
+      walk(c, p, o, [...ancestors, base]);
+    }
+
+    // files
+    for (const f of [...node.files].sort((a, b) => a.rel.localeCompare(b.rel))) {
+      const fn = f.rel.split("/").pop();
+      const em = fn.match(/(\.[^.\s]{1,8})$/);
+      const ext = em ? em[1] : "";
+      const stem0 = cleanName(ext ? fn.slice(0, -ext.length) : fn, opts);
+      const room = Math.min(LIMIT_NAME, LIMIT_PATH - blen(devPath) - 1) - blen(ext);
+      const cands = [stem0, stripTag(stem0), stripTag(stem0).replace(/^(\d+\w?) - /, "$1 ")];
+      let stem = cands.find(s => blen(s) <= room);
+      if (stem === undefined) {
+        // keep a trailing number or "(...)" so similar names stay distinguishable
+        const m = cands[2].match(/\s*(\d+|\([^)]{1,16}\))$/);
+        const tailPart = m && blen(m[0]) < room / 2 ? m[0] : "";
+        stem = truncBytes(cands[2].slice(0, cands[2].length - tailPart.length), room - blen(tailPart)) + tailPart;
+      }
+      const name = uniq(stem, ext, room);
+      const p = devPath + "/" + name;
+      files.push({ orig: f.rel, path: p, renamed: name !== fn, tooLong: blen(p) > LIMIT_PATH || room < 1, entry: f });
+    }
+  }
+
+  dirs.push({ orig: "", path: root, renamed: false, isRoot: true });
+  walk(tree, root, "", []);
+  return { dirs, files, skipped };
+}
+
+if (typeof module !== "undefined") module.exports = { planUpload, blen, LIMIT_PATH, LIMIT_NAME };
+
+</script>
+<script>
+// ================= Pixl.js BLE protocol =================
+const NUS = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+const MAX_FRAME_DATA = 243;
+const te = new TextEncoder(), td = new TextDecoder();
+
+class Reader {
+  constructor(u8){ this.b = u8; this.o = 0; this.v = new DataView(u8.buffer, u8.byteOffset, u8.byteLength); }
+  left(){ return this.b.length - this.o; }
+  u8(){ return this.b[this.o++]; }
+  u16(){ const x = this.v.getUint16(this.o, true); this.o += 2; return x; }
+  u32(){ const x = this.v.getUint32(this.o, true); this.o += 4; return x; }
+  str(){ const n = this.u16(); const s = td.decode(this.b.subarray(this.o, this.o + n)); this.o += n; return s; }
+  bytes(n){ const x = this.b.slice(this.o, this.o + n); this.o += n; return x; }
+}
+class Writer {
+  constructor(){ this.a = []; }
+  u8(x){ this.a.push(x & 255); return this; }
+  u32(x){ this.a.push(x & 255, (x >>> 8) & 255, (x >>> 16) & 255, (x >>> 24) & 255); return this; }
+  raw(arr){ for (const x of arr) this.a.push(x); return this; }
+  str(s){ const b = te.encode(s); this.a.push(b.length & 255, b.length >> 8, ...b); return this; }
+  bytes(){ return new Uint8Array(this.a); }
+}
+function parseMeta(u8){
+  const m = { notes: "", hide: false, readonly: false, head: 0, tail: 0 };
+  const R = new Reader(u8);
+  try {
+    while (R.left() > 0) {
+      const t = R.u8();
+      if (t === 1) { const n = R.u8(); m.notes = td.decode(R.bytes(n)); }
+      else if (t === 2) { const f = R.u8(); m.hide = !!(f & 1); m.readonly = !!(f & 4); }
+      else if (t === 3) { m.head = R.u32(); m.tail = R.u32(); }
+      else break;
+    }
+  } catch {}
+  return m;
+}
+function buildMeta(m){
+  const W = new Writer(); const nb = te.encode(m.notes || "");
+  if (nb.length > 90) throw new Error("Notes can be at most 90 bytes (currently " + nb.length + ")");
+  if (nb.length) W.u8(1).u8(nb.length).raw(nb);
+  W.u8(2).u8((m.hide ? 1 : 0) | (m.readonly ? 4 : 0));
+  if (m.head || m.tail) W.u8(3).u32(m.head).u32(m.tail);
+  return W.bytes();
+}
+
+class Pixl {
+  constructor(){ this.queue = Promise.resolve(); this.pending = null; this.rxParts = []; this.rxHead = null; this.onDisconnect = null; }
+  async connect(){
+    this.device = await navigator.bluetooth.requestDevice({ filters:[{services:[NUS]}], optionalServices:[NUS] });
+    this.device.addEventListener("gattserverdisconnected", () => {
+      if (this.pending) { clearTimeout(this.pending.timer); this.pending.reject(new Error("Disconnected")); this.pending = null; }
+      this.onDisconnect && this.onDisconnect();
+    });
+    const server = await this.device.gatt.connect();
+    const svc = await server.getPrimaryService(NUS);
+    this.tx = await svc.getCharacteristic(NUS_TX);
+    this.rx = await svc.getCharacteristic(NUS_RX);
+    this.rx.addEventListener("characteristicvaluechanged", e => { const v = e.target.value; this._onRx(new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength))); });
+    await this.rx.startNotifications();
+  }
+  get connected(){ return !!(this.device && this.device.gatt.connected); }
+  disconnect(){ if (this.connected) this.device.gatt.disconnect(); }
+  _onRx(b){
+    const cmd = b[0], status = b[1], chunk = b[2] | (b[3] << 8);
+    if (!this.rxHead) this.rxHead = { cmd, status };
+    this.rxParts.push(b.slice(4));
+    if (chunk & 0x8000) return;
+    const len = this.rxParts.reduce((a, p) => a + p.length, 0);
+    const data = new Uint8Array(len); let o = 0;
+    for (const p of this.rxParts) { data.set(p, o); o += p.length; }
+    const head = this.rxHead; this.rxParts = []; this.rxHead = null;
+    // Only accept a reply that matches the command we're waiting on; drop late/stray replies
+    if (!this.pending || this.pending.cmd !== head.cmd) { this.trace && this.trace(`stray reply 0x${head.cmd.toString(16)} ignored`); return; }
+    const p = this.pending; this.pending = null; clearTimeout(p.timer);
+    this.trace && this.trace(`  ← 0x${head.cmd.toString(16)} status ${head.status} (${data.length} bytes)`);
+    p.resolve({ cmd: head.cmd, status: head.status, data });
+  }
+  request(cmd, payload = new Uint8Array(0), timeoutMs = 15000){
+    // One request at a time: send the frame, wait for the BLE write itself to finish,
+    // AND wait for the device's reply, before the next request is allowed to start.
+    const run = async () => {
+      if (!this.connected) throw new Error("Not connected");
+      const frame = new Uint8Array(4 + payload.length);
+      frame[0] = cmd; frame.set(payload, 4);
+      this.rxParts = []; this.rxHead = null;
+      const reply = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { if (this.pending) { this.pending = null; this.trace && this.trace("  ✕ timed out"); reject(new Error("Timed out")); } }, timeoutMs);
+        this.pending = { resolve, reject, timer, cmd };
+      });
+      reply.catch(() => {});
+      if (this.trace) { let info = ""; try { if (payload.length > 2 && cmd !== 0x15 && cmd !== 0x13 && cmd !== 0x14) { const n = payload[0] | (payload[1] << 8); info = " " + td.decode(payload.subarray(2, 2 + n)); } } catch {} this.trace(`→ 0x${cmd.toString(16)}${info}`); }
+      try { await this._write(frame); }
+      catch (e) { if (this.pending) { clearTimeout(this.pending.timer); this.pending = null; } throw e; }
+      return await reply;
+    };
+    const p = this.queue.then(run, run);
+    this.queue = p.catch(() => {});
+    return p;
+  }
+  async _write(frame){
+    for (let attempt = 0; ; attempt++) {
+      try { return await (this.tx.writeValueWithResponse ? this.tx.writeValueWithResponse(frame) : this.tx.writeValue(frame)); }
+      catch (e) {
+        if (attempt < 8 && /in progress/i.test(e.message || "")) { await new Promise(r => setTimeout(r, 30 * (attempt + 1))); continue; }
+        throw e;
+      }
+    }
+  }
+  async version(){ const r = await this.request(0x01); const R = new Reader(r.data); return { ver: R.str(), addr: R.left() ? R.str() : "" }; }
+  async drives(){
+    const r = await this.request(0x10); const R = new Reader(r.data); const n = R.u8(); const out = [];
+    try { for (let i = 0; i < n && R.left(); i++) out.push({ status: R.u8(), label: String.fromCharCode(R.u8()), name: R.str(), total: R.u32(), free: R.u32() }); } catch {}
+    return out;
+  }
+  async format(label){ return (await this.request(0x11, new Uint8Array([label.charCodeAt(0)]), 120000)).status === 0; }
+  async readDir(path){
+    const r = await this.request(0x16, new Writer().str(path).bytes());
+    if (r.status !== 0) return null;
+    const R = new Reader(r.data), items = [];
+    while (R.left() > 0) { const name = R.str(), size = R.u32(), type = R.u8(), ms = R.u8(); const meta = parseMeta(R.bytes(ms)); items.push({ name, size, dir: type === 1, meta }); }
+    return items;
+  }
+  async mkdir(path){ return (await this.request(0x17, new Writer().str(path).bytes())).status === 0; }
+  async remove(path){ return (await this.request(0x18, new Writer().str(path).bytes())).status === 0; }
+  async rename(a, b){ return (await this.request(0x19, new Writer().str(a).str(b).bytes())).status === 0; }
+  async setMeta(path, meta){ const mb = buildMeta(meta); return (await this.request(0x1a, new Writer().str(path).u8(mb.length).raw(mb).bytes())).status === 0; }
+  async readFile(path){
+    const o = await this.request(0x12, new Writer().str(path).u8(0x08).bytes());
+    if (o.status !== 0) throw new Error("open failed (status " + o.status + ")");
+    const id = o.data[0];
+    try { const r = await this.request(0x14, new Uint8Array([id]), 30000); if (r.status !== 0) throw new Error("read failed (status " + r.status + ")"); return r.data; }
+    finally { await this.request(0x13, new Uint8Array([id])).catch(() => {}); }
+  }
+  async writeFile(path, buf){
+    const o = await this.request(0x12, new Writer().str(path).u8(0x16).bytes());
+    if (o.status !== 0) throw new Error("open failed (status " + o.status + ")");
+    const id = o.data[0]; let err = null;
+    try {
+      for (let off = 0; off < buf.length; off += MAX_FRAME_DATA - 1) {
+        const part = buf.subarray(off, Math.min(buf.length, off + MAX_FRAME_DATA - 1));
+        const p = new Uint8Array(1 + part.length); p[0] = id; p.set(part, 1);
+        const w = await this.request(0x15, p);
+        if (w.status !== 0) throw new Error("write failed (status " + w.status + ")");
+      }
+    } catch (e) { err = e; }
+    try { const c = await this.request(0x13, new Uint8Array([id])); if (!err && c.status !== 0) err = new Error("close failed (status " + c.status + ")"); }
+    catch (e) { if (!err) err = e; }
+    if (err) throw err;
+  }
+}
+
+// ================= helpers =================
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const fmtSize = n => n >= 1048576 ? (n / 1048576).toFixed(2) + " MB" : n >= 1024 ? (n / 1024).toFixed(1) + " KB" : n + " B";
+const join = (dir, name) => /^[EI]:\/?$/.test(dir) ? dir.slice(0, 2) + "/" + name : dir + "/" + name;
+const parentOf = p => { const i = p.lastIndexOf("/"); return i <= 2 ? p.slice(0, 2) + "/" : p.slice(0, i); };
+function nameError(dir, name){
+  if (!name) return "Name can't be empty";
+  if (/[\/\\]/.test(name)) return "Name can't contain / or \\";
+  if (blen(name) > LIMIT_NAME) return `Name is ${blen(name)} bytes; the limit is ${LIMIT_NAME}`;
+  const p = join(dir, name);
+  if (blen(p) > LIMIT_PATH) return `Full path is ${blen(p)} bytes; the limit is ${LIMIT_PATH}`;
+  return "";
+}
+function setStatus(msg, cls){ const s = $("status"); s.className = cls || "muted"; s.textContent = msg || ""; }
+
+// generic dialog: fields [{id,label,type:'text'|'textarea'|'checkbox',value}] ; returns values or null
+function dialog({ title, message = "", fields = [], ok = "OK", danger = false, validate }){
+  return new Promise(resolve => {
+    const d = $("dlg");
+    $("dlgTitle").textContent = title;
+    $("dlgOk").textContent = ok;
+    $("dlgOk").className = danger ? "primary" : "primary";
+    if (danger) $("dlgOk").style.background = "var(--err)", $("dlgOk").style.borderColor = "var(--err)"; else $("dlgOk").style.background = $("dlgOk").style.borderColor = "";
+    let html = message ? `<div class="msg">${esc(message)}</div>` : "";
+    for (const f of fields) {
+      if (f.type === "checkbox") html += `<label class="chk fld" style="flex-direction:row"><input type="checkbox" id="f_${f.id}" ${f.value ? "checked" : ""}> ${esc(f.label)}</label>`;
+      else if (f.type === "textarea") html += `<div class="fld"><label for="f_${f.id}">${esc(f.label)}</label><textarea id="f_${f.id}" rows="3">${esc(f.value || "")}</textarea></div>`;
+      else html += `<div class="fld"><label for="f_${f.id}">${esc(f.label)}</label><input type="text" id="f_${f.id}" value="${esc(f.value || "")}" spellcheck="false"></div>`;
+    }
+    html += `<div class="err note" id="dlgErr"></div>`;
+    $("dlgBody").innerHTML = html;
+    const get = () => Object.fromEntries(fields.map(f => [f.id, f.type === "checkbox" ? $("f_" + f.id).checked : $("f_" + f.id).value]));
+    const onSubmit = e => {
+      if (e.submitter && e.submitter.value === "cancel") return;
+      if (validate) { const err = validate(get()); if (err) { e.preventDefault(); $("dlgErr").textContent = err; return; } }
+    };
+    $("dlgForm").addEventListener("submit", onSubmit);
+    d.addEventListener("close", function h(){
+      d.removeEventListener("close", h); $("dlgForm").removeEventListener("submit", onSubmit);
+      resolve(d.returnValue === "ok" ? get() : null);
+    });
+    d.returnValue = "";
+    d.showModal();
+    const first = d.querySelector("input[type=text],textarea"); if (first) { first.focus(); first.select && first.select(); }
+  });
+}
+
+// ================= state =================
+const pixl = new Pixl();
+let cwd = "";          // "" = drive list, else "E:/" or "E:/amiibo/..."
+let items = [];        // current listing
+let drives = [];
+let busy = false, uploading = false;
+
+if (!navigator.bluetooth) $("nobt").classList.remove("hidden");
+
+function updateUI(){
+  const c = pixl.connected;
+  $("connect").classList.toggle("hidden", c);
+  $("disconnect").classList.toggle("hidden", !c);
+  $("connect").disabled = !navigator.bluetooth;
+  const inDir = c && cwd !== "";
+  const lock = busy || uploading;
+  $("btnUp").disabled = !inDir || lock;
+  $("btnRefresh").disabled = !c || lock;
+  $("btnNewFolder").disabled = !inDir || lock;
+  $("btnUpFiles").disabled = !inDir || lock;
+  $("btnUpFolder").disabled = !inDir || lock;
+  $("btnDelSel").disabled = !inDir || lock || !selected().length;
+  $("start").disabled = !c || uploading || !plan || !plan.files.length;
+  $("verify").disabled = !c || uploading || !plan || !plan.files.length;
+  $("addFolder").disabled = $("addFiles").disabled = uploading;
+  $("stop").disabled = !uploading;
+  $("disconnect").disabled = uploading;
+}
+async function withBusy(msg, fn){
+  busy = true; updateUI(); setStatus(msg);
+  try { const r = await fn(); setStatus(""); return r; }
+  catch (e) { setStatus((e && e.message) || String(e), "err"); }
+  finally { busy = false; updateUI(); }
+}
+
+// ================= connection =================
+$("connect").onclick = async () => {
+  try {
+    $("devInfo").textContent = "Connecting…"; setStatus("");
+    await pixl.connect();
+    setStatus("Connected.", "ok");
+    const v = await pixl.version().catch(() => ({ ver: "?" }));
+    $("devInfo").textContent = `${pixl.device.name || "Pixl.js"} · firmware ${v.ver}`;
+    cwd = ""; await loadDrives();
+    const ready = drives.find(d => d.status === 0);
+    if (ready) { cwd = ready.label + ":/"; await loadDir(); }
+  } catch (e) {
+    $("devInfo").textContent = "Not connected";
+    if (e.name !== "NotFoundError") setStatus("Connect failed: " + e.message, "err");
+  }
+  updateUI();
+};
+$("disconnect").onclick = () => pixl.disconnect();
+pixl.onDisconnect = () => {
+  $("devInfo").textContent = "Disconnected";
+  items = []; render(); setStatus("Device disconnected.", "warn"); updateUI();
+};
+
+// ================= browsing =================
+async function loadDrives(){
+  drives = await pixl.drives();
+  render();
+}
+async function loadDir(){
+  if (cwd === "") { await loadDrives(); return; }
+  const r = await pixl.readDir(cwd);
+  if (!r) throw new Error("Couldn't open " + cwd);
+  items = r.sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  render();
+}
+const refresh = () => withBusy("Loading…", loadDir);
+
+function selected(){ return [...document.querySelectorAll("#tbody input.sel:checked")].map(c => items[+c.dataset.i]); }
+
+function render(){
+  // breadcrumbs
+  const cr = $("crumbs"); let h = `<a data-p="">Drives</a>`;
+  if (cwd) {
+    const drive = cwd.slice(0, 2);
+    h += `<span class="sep">›</span><a data-p="${drive}/">${drive}</a>`;
+    const parts = cwd.slice(3).split("/").filter(Boolean); let acc = drive;
+    for (const p of parts) { acc += "/" + p; h += `<span class="sep">›</span><a data-p="${esc(acc)}">${esc(p)}</a>`; }
+  }
+  cr.innerHTML = pixl.connected ? h : "";
+  cr.querySelectorAll("a").forEach(a => a.onclick = () => { if (busy || uploading) return; cwd = a.dataset.p; refresh(); });
+
+  const tb = $("tbody"); $("selAll").checked = false;
+  if (!pixl.connected) { tb.innerHTML = ""; $("emptyMsg").textContent = "Connect your Pixl.js to browse its files."; $("emptyMsg").classList.remove("hidden"); return; }
+  if (cwd === "") {
+    tb.innerHTML = drives.map((d, i) => `<tr><td></td><td class="name" data-drive="${i}"><span class="ic">▣</span>${esc(d.label)}: <span class="muted">${esc(d.name)}</span></td>
+      <td class="size" colspan="2">${d.status === 0 ? `<span class="usage"><div style="width:${((d.total - d.free) / d.total * 100).toFixed(1)}%"></div></span>${fmtSize(d.total - d.free)} used of ${fmtSize(d.total)} · ${fmtSize(d.free)} free` : `<span class="err">Not ready (status ${d.status})</span>`}</td>
+      <td class="act"><button data-fmt="${i}" class="danger">Format…</button></td></tr>`).join("");
+    $("emptyMsg").classList.toggle("hidden", drives.length > 0); $("emptyMsg").textContent = "No drives reported.";
+    tb.querySelectorAll("[data-drive]").forEach(el => el.onclick = () => { const d = drives[+el.dataset.drive]; if (d.status !== 0) return; cwd = d.label + ":/"; refresh(); });
+    tb.querySelectorAll("[data-fmt]").forEach(el => el.onclick = () => formatDrive(drives[+el.dataset.fmt]));
+    return;
+  }
+  tb.innerHTML = items.map((it, i) => `<tr class="${it.meta.hide ? "hid" : ""}">
+    <td><input type="checkbox" class="sel" data-i="${i}"></td>
+    <td class="name" data-i="${i}"><span class="ic">${it.dir ? "▸" : "·"}</span>${esc(it.name)}${SPECIAL[join(cwd, it.name).slice(2).toLowerCase()] ? '<span class="badge" title="Used by the firmware">system</span>' : ""}${it.meta.readonly ? '<span class="badge">read-only</span>' : ""}${it.meta.hide ? '<span class="badge">hidden</span>' : ""}</td>
+    <td class="size">${it.dir ? '<span class="muted">folder</span>' : fmtSize(it.size)}</td>
+    <td class="size notes muted">${esc(it.meta.notes)}</td>
+    <td class="act">${it.dir ? "" : `<button data-dl="${i}" title="Download">⤓</button> `}<button data-ren="${i}">Rename</button> <button data-prop="${i}">Properties</button> <button data-del="${i}" class="danger">Delete</button></td></tr>`).join("");
+  $("emptyMsg").textContent = "This folder is empty. Drag files or a folder here to upload.";
+  $("emptyMsg").classList.toggle("hidden", items.length > 0);
+  tb.querySelectorAll("td.name").forEach(el => el.onclick = () => { const it = items[+el.dataset.i]; if (it.dir) { cwd = join(cwd, it.name); refresh(); } else download(it); });
+  tb.querySelectorAll("[data-dl]").forEach(el => el.onclick = () => download(items[+el.dataset.dl]));
+  tb.querySelectorAll("[data-ren]").forEach(el => el.onclick = () => renameItem(items[+el.dataset.ren]));
+  tb.querySelectorAll("[data-prop]").forEach(el => el.onclick = () => editProps(items[+el.dataset.prop]));
+  tb.querySelectorAll("[data-del]").forEach(el => el.onclick = () => deleteItems([items[+el.dataset.del]]));
+  tb.querySelectorAll("input.sel").forEach(el => el.onchange = updateUI);
+  updateUI();
+}
+$("selAll").onchange = e => { document.querySelectorAll("#tbody input.sel").forEach(c => c.checked = e.target.checked); updateUI(); };
+
+$("btnUp").onclick = () => { cwd = /^[EI]:\/$/.test(cwd) ? "" : parentOf(cwd); refresh(); };
+$("btnRefresh").onclick = refresh;
+
+$("btnNewFolder").onclick = async () => {
+  const v = await dialog({ title: "New folder", fields: [{ id: "name", label: "Folder name" }], ok: "Create", validate: v => nameError(cwd, v.name.trim()) });
+  if (!v) return;
+  await withBusy("Creating folder…", async () => { if (!await pixl.mkdir(join(cwd, v.name.trim()))) throw new Error("Couldn't create the folder (does it already exist?)"); await loadDir(); });
+};
+
+async function renameItem(it){
+  const v = await dialog({ title: "Rename", fields: [{ id: "name", label: "New name", value: it.name }], ok: "Rename", validate: v => nameError(cwd, v.name.trim()) || (items.some(x => x !== it && x.name.toLowerCase() === v.name.trim().toLowerCase()) ? "Something with that name already exists here" : "") });
+  if (!v || v.name.trim() === it.name) return;
+  await withBusy("Renaming…", async () => {
+    if (!await pixl.rename(join(cwd, it.name), join(cwd, v.name.trim()))) throw new Error("Rename failed");
+    await loadDir();
+    if (it.dir && !items.some(x => x.name === v.name.trim()))
+      throw new Error("The device said OK but the folder wasn't renamed. This firmware has a bug that stops folders from being renamed (files are fine). Create a new folder instead.");
+  });
+}
+
+async function editProps(it){
+  const v = await dialog({ title: "Properties: " + it.name, message: it.dir ? "Folder" : `${fmtSize(it.size)}`, ok: "Save",
+    fields: [{ id: "notes", label: "Notes (shown on the Pixl.js, max 90 bytes)", type: "textarea", value: it.meta.notes }, { id: "hide", label: "Hidden", type: "checkbox", value: it.meta.hide }, { id: "readonly", label: "Read-only", type: "checkbox", value: it.meta.readonly }],
+    validate: v => blen(v.notes) > 90 ? `Notes are ${blen(v.notes)} bytes; the limit is 90` : "" });
+  if (!v) return;
+  await withBusy("Saving…", async () => { if (!await pixl.setMeta(join(cwd, it.name), { ...it.meta, notes: v.notes, hide: v.hide, readonly: v.readonly })) throw new Error("Couldn't save properties"); await loadDir(); });
+}
+
+async function download(it){
+  await withBusy("Downloading " + it.name + "…", async () => {
+    const data = await pixl.readFile(join(cwd, it.name));
+    const url = URL.createObjectURL(new Blob([data], { type: "application/octet-stream" }));
+    const a = document.createElement("a"); a.href = url; a.download = it.name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  });
+}
+
+// Files the firmware itself uses on the storage drive
+const SPECIAL = {
+  "/key_retail.bin": "key_retail.bin holds the amiibo keys. The Pixl.js reloads it at every startup, and without it the amiibo features stop working until you upload it again. Download a copy first.",
+  "/settings.bin": "settings.bin holds your device settings. It's recreated with default settings if deleted.",
+  "/amiibo/data": "amiibo/data holds your AmiiDB saved slots.",
+  "/amiibo/fav": "amiibo/fav holds your AmiiDB favorites.",
+  "/chameleon": "The chameleon folder holds Chameleon mode slots and dumps."
+};
+async function removeRecursive(path, isDir, counter){
+  if (isDir) {
+    const list = await pixl.readDir(path) || [];
+    for (const c of list) await removeRecursive(join(path, c.name), c.dir, counter);
+  }
+  if (!await pixl.remove(path)) throw new Error("Couldn't delete " + path);
+  counter.n++; setStatus(`Deleting… ${counter.n}`);
+}
+async function deleteItems(list){
+  if (!list.length) return;
+  const dirs = list.filter(x => x.dir).length;
+  const what = list.length === 1 ? `"${list[0].name}"` : `${list.length} items`;
+  const warns = list.map(it => SPECIAL[join(cwd, it.name).slice(2).toLowerCase()]).filter(Boolean);
+  const v = await dialog({ title: "Delete", message: `Delete ${what}?` + (dirs ? "\nFolders are deleted with everything inside them." : "") + "\nThis can't be undone." + (warns.length ? "\n\n⚠ " + warns.join("\n⚠ ") : ""), ok: "Delete", danger: true });
+  if (!v) return;
+  await withBusy("Deleting…", async () => { const counter = { n: 0 }; for (const it of list) await removeRecursive(join(cwd, it.name), it.dir, counter); await loadDir(); });
+}
+$("btnDelSel").onclick = () => deleteItems(selected());
+
+async function formatDrive(d){
+  const v = await dialog({ title: `Format ${d.label}:`, message: `This erases EVERYTHING on drive ${d.label}: (${d.name}).\nType FORMAT to confirm.`, fields: [{ id: "c", label: "" }], ok: "Format", danger: true, validate: v => v.c.trim().toUpperCase() === "FORMAT" ? "" : "Type FORMAT to confirm" });
+  if (!v) return;
+  await withBusy("Formatting… this can take a minute", async () => { if (!await pixl.format(d.label)) throw new Error("Format failed"); await loadDrives(); });
+}
+
+// ================= upload (files or folders) =================
+let entries = [], topName = "", plan = null, uploadBase = "";
+$("btnUpFiles").onclick = () => { $("pickFiles").value = ""; $("pickFiles").click(); };
+$("btnUpFolder").onclick = () => { $("pickFolder").value = ""; $("pickFolder").click(); };
+let appendNext = false;
+$("addFolder").onclick = () => { appendNext = true; $("pickFolder").value = ""; $("pickFolder").click(); };
+$("addFiles").onclick = () => { appendNext = true; $("pickFiles").value = ""; $("pickFiles").click(); };
+$("pickFiles").onchange = e => { const fl = [...e.target.files]; if (fl.length) setEntries(fl.map(f => ({ rel: f.name, size: f.size, file: f })), appendNext); appendNext = false; };
+$("pickFolder").onchange = e => { const fl = [...e.target.files]; if (fl.length) setEntries(fl.map(f => ({ rel: f.webkitRelativePath || f.name, size: f.size, file: f })), appendNext); appendNext = false; };
+
+const wrap = $("tblwrap"); let dragDepth = 0;
+wrap.addEventListener("dragenter", e => { if (cwd && pixl.connected && !uploading) { dragDepth++; $("drop").classList.remove("hidden"); } });
+wrap.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("drop").classList.add("hidden"); } });
+wrap.addEventListener("dragover", e => e.preventDefault());
+wrap.addEventListener("drop", async e => {
+  e.preventDefault(); dragDepth = 0; $("drop").classList.add("hidden");
+  if (!cwd || !pixl.connected || uploading) return;
+  const roots = [...e.dataTransfer.items].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  const out = [];
+  async function walk(entry, prefix){
+    if (entry.isFile) { const f = await new Promise((res, rej) => entry.file(res, rej)); out.push({ rel: prefix + entry.name, size: f.size, file: f }); }
+    else if (entry.isDirectory) { const r = entry.createReader(); while (true) { const batch = await new Promise((res, rej) => r.readEntries(res, rej)); if (!batch.length) break; for (const c of batch) await walk(c, prefix + entry.name + "/"); } }
+  }
+  setStatus("Reading dropped items…");
+  for (const r of roots) await walk(r, "");
+  setStatus("");
+  if (out.length) setEntries(out, !$("upCard").classList.contains("hidden") && entries.length > 0);
+});
+
+// entries keep their top-level folder in rel ("Kirby/01 - Kirby.bin"); "Upload into" is the destination folder
+function setEntries(list, append){
+  if (!append || uploading) { entries = []; excluded = new Set(); $("root").value = cwd; }
+  const seen = new Set(entries.map(e => e.rel));
+  for (const e of list) if (!seen.has(e.rel)) { entries.push(e); seen.add(e.rel); }
+  $("binOnly").checked = entries.some(e => /\.bin$/i.test(e.rel));
+  if (!append) { $("log").innerHTML = ""; $("prog").style.width = "0"; $("progTxt").textContent = ""; }
+  $("upCard").classList.remove("hidden");
+  renderQueue(); rebuild();
+  if (!append) $("upCard").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+let excluded = new Set();
+function groupKey(e){
+  const parts = e.rel.split("/");
+  if (parts.length === 1) return "(loose files)";
+  const tops = new Set(entries.map(x => x.rel.split("/")[0]));
+  if (tops.size === 1 && parts.length > 2) return parts[0] + "/" + parts[1];
+  if (tops.size === 1) return parts[0] + "/(files)";
+  return parts[0];
+}
+const included = () => entries.filter(e => !excluded.has(groupKey(e)));
+function renderPicker(){
+  const g = new Map();
+  for (const e of entries) { const k = groupKey(e); const o = g.get(k) || { n: 0, sz: 0 }; o.n++; o.sz += Math.max(1, Math.ceil(e.size / 4096)) * 4096; g.set(k, o); }
+  $("pickWrap").classList.toggle("hidden", g.size < 2);
+  $("pickList").innerHTML = [...g].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" }))
+    .map(([k, o]) => `<label><input type="checkbox" data-k="${esc(k)}" ${excluded.has(k) ? "" : "checked"}> ${esc(k.endsWith("/(files)") ? "Files directly in " + k.split("/")[0] : k.includes("/") ? k.slice(k.indexOf("/") + 1) : k)} <span class="muted">${o.n} · ${fmtSize(o.sz)}</span></label>`).join("");
+  $("pickList").querySelectorAll("input").forEach(c => c.onchange = () => { c.checked ? excluded.delete(c.dataset.k) : excluded.add(c.dataset.k); rebuild(); });
+}
+$("pickAll").onclick = () => { excluded.clear(); renderPicker(); rebuild(); };
+$("pickNone").onclick = () => { for (const e of entries) excluded.add(groupKey(e)); renderPicker(); rebuild(); };
+function renderQueue(){
+  renderPicker();
+  const groups = new Map();
+  for (const e of entries) { const k = e.rel.includes("/") ? e.rel.split("/")[0] + "/" : "(loose files)"; groups.set(k, (groups.get(k) || 0) + 1); }
+  $("queue").innerHTML = [...groups].map(([k, n]) => `<span class="chip">${esc(k)} <span class="muted">${n}</span><button data-rm="${esc(k)}" title="Remove">×</button></span>`).join("") || '<span class="muted">nothing</span>';
+  $("queue").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => {
+    if (uploading) return; const k = b.dataset.rm;
+    entries = entries.filter(e => k === "(loose files)" ? e.rel.includes("/") : !e.rel.startsWith(k));
+    excluded = new Set([...excluded].filter(x => !x.startsWith(k)));
+    renderQueue(); rebuild();
+  });
+}
+$("upClose").onclick = () => { if (uploading) return; $("upCard").classList.add("hidden"); entries = []; plan = null; updateUI(); };
+["root", "ascii", "binOnly"].forEach(id => $(id)[id === "root" ? "oninput" : "onchange"] = () => rebuild());
+
+function rebuild(){
+  let root = $("root").value.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!/^[EI]:/.test(root)) root = (cwd || "E:/").slice(0, 2) + "/" + root.replace(/^\/+/, "");
+  root = root.replace(/\/+$/, "");
+  // Don't nest a folder inside a folder of the same name (picking "amiibo" while in E:/amiibo)
+  let list = included(), merged = "";
+  const tops = new Set(list.map(e => e.rel.split("/")[0]));
+  const last = root.split("/").pop();
+  if (tops.size === 1 && list.every(e => e.rel.includes("/")) && last && [...tops][0].toLowerCase() === last.toLowerCase()) {
+    merged = [...tops][0];
+    list = list.map(e => ({ ...e, rel: e.rel.slice(merged.length + 1) }));
+  }
+  plan = planUpload(list, { root, binOnly: $("binOnly").checked, asciiOnly: $("ascii").checked });
+  const ren = [...plan.dirs.filter(d => d.renamed && !d.isRoot), ...plan.files.filter(f => f.renamed)];
+  const bad = plan.files.filter(f => f.tooLong);
+  const bytes = plan.files.reduce((a, f) => a + f.entry.size, 0);
+  plan.estimate = plan.files.reduce((a, f) => a + Math.max(1, Math.ceil(f.entry.size / 4096)) * 4096, 0) + (plan.dirs.length - 1) * 8192;
+  $("stats").innerHTML = [[plan.files.length, "files"], [plan.dirs.length - 1, "folders"], [ren.length, "renamed"], [plan.skipped.length, "skipped"], [fmtSize(bytes), "data"], ["≈ " + fmtSize(plan.estimate), "space on device"]]
+    .map(([b, s]) => `<div class="stat"><b>${esc(b)}</b><span>${s}</span></div>`).join("");
+  let notes = "";
+  if (bad.length) notes += `<p class="err">${bad.length} files still can't fit. Shorten the destination path.</p>`;
+  else if (!ren.length && plan.files.length) notes += `<p class="ok">Every name already fits. Nothing will be renamed.</p>`;
+  if (merged) notes = `<p class="note">Putting the contents of “${esc(merged)}” straight into ${esc(root)} (not ${esc(root)}/${esc(merged)}).</p>` + notes;
+  if (plan.files.length) notes = `<p class="note">Files will go to paths like <code>${esc(plan.files[0].path)}</code></p>` + notes;
+  $("planNotes").innerHTML = notes;
+  $("renDet").style.display = ren.length ? "" : "none";
+  $("renTbl").innerHTML = "<tr><th>Original</th><th>On Pixl.js</th></tr>" + ren.map(r => `<tr><td>${esc(r.orig)}</td><td>${esc(r.path)}</td></tr>`).join("");
+  $("skipDet").style.display = plan.skipped.length ? "" : "none";
+  $("skipTbl").innerHTML = "<tr><th>File</th><th>Why</th></tr>" + plan.skipped.map(s => `<tr><td>${esc(s.rel)}</td><td>${esc(s.why)}</td></tr>`).join("");
+  const d = drives.find(x => x.label === root[0]);
+  $("spaceNote").textContent = d && d.status === 0 ? `Drive ${d.label}: has ${fmtSize(d.free)} free. This upload needs about ${fmtSize(plan.estimate)}. Each file uses at least one 4 KB block.` + (plan.estimate > d.free ? " It probably won't all fit. The upload stops when the drive is full." : "") : "";
+  updateUI();
+}
+function log(msg, cls){ const d = document.createElement("div"); if (cls) d.className = cls; d.textContent = msg; const L = $("log"); L.appendChild(d); while (L.childNodes.length > 800) L.removeChild(L.firstChild); L.scrollTop = L.scrollHeight; }
+let stopFlag = false;
+$("stop").onclick = () => { stopFlag = true; log("Stopping after the current file…", "warn"); };
+
+async function ensureDir(path){
+  const rp = /^[EI]:$/.test(path) ? path + "/" : path;
+  let list = await pixl.readDir(rp);
+  if (!list) {
+    const ok = await pixl.mkdir(path);
+    list = await pixl.readDir(rp);
+    if (list) log("Created " + path); else log(`Couldn't create ${path} (mkdir ${ok ? "said OK" : "failed"})`, "err");
+  }
+  return list;
+}
+
+async function verifyPlan(files){
+  log("Checking what's actually on the device…");
+  const byDir = new Map();
+  for (const f of files) { const dir = f.path.slice(0, f.path.lastIndexOf("/")); if (!byDir.has(dir)) byDir.set(dir, []); byDir.get(dir).push(f); }
+  let ok = 0, missing = 0, wrong = 0; const bad = [];
+  try {
+    for (const [dir, fs] of byDir) {
+      const list = await pixl.readDir(/^[EI]:$/.test(dir) ? dir + "/" : dir);
+      if (!list) log(`Folder missing on device: ${dir}`, "err");
+      const m = new Map((list || []).filter(i => !i.dir).map(i => [i.name, i.size]));
+      for (const f of fs) {
+        const name = f.path.slice(dir.length + 1), have = m.get(name);
+        if (have === f.entry.size) ok++;
+        else { if (have === undefined) missing++; else wrong++; bad.push(f.path + (have === undefined ? " (missing)" : ` (${have} bytes, expected ${f.entry.size})`)); }
+      }
+    }
+    for (const b of bad.slice(0, 50)) log("  ✕ " + b, "err");
+    if (bad.length > 50) log(`  …and ${bad.length - 50} more`, "err");
+    log(`Verified: ${ok} of ${files.length} files are on the device and complete.` + (missing ? ` ${missing} missing.` : "") + (wrong ? ` ${wrong} wrong size.` : "") + (bad.length ? " Press Start upload to send just those." : ""), bad.length ? "err" : "ok");
+  } catch (e) { log("Couldn't verify: " + e.message, "warn"); }
+  return { ok, bad: bad.length };
+}
+$("verify").onclick = async () => {
+  if (!plan || !pixl.connected || uploading) return;
+  uploading = true; updateUI();
+  pixl.trace = $("verbose").checked ? (m => log(m, "muted")) : null;
+  const r = await verifyPlan(plan.files);
+  pixl.trace = null;
+  $("prog").style.width = (r.ok / Math.max(1, plan.files.length) * 100).toFixed(1) + "%"; $("progTxt").textContent = `${r.ok}/${plan.files.length} on device`;
+  uploading = false; updateUI();
+};
+$("start").onclick = async () => {
+  if (!plan) return;
+  uploading = true; stopFlag = false; updateUI();
+  setStatus("Uploading… see progress below.");
+  pixl.trace = $("verbose").checked ? (m => log(m, "muted")) : null;
+  log(`Uploading ${plan.files.length} files to ${plan.dirs[0].path}…`);
+  ["root", "ascii", "binOnly"].forEach(id => $(id).disabled = true);
+  const files = plan.files, total = files.length;
+  let done = 0, sent = 0, skipped = 0, failed = 0, consecutiveFail = 0;
+  const failedDirs = new Set(), listing = new Map();
+  const setProg = () => { $("prog").style.width = (done / total * 100).toFixed(1) + "%"; $("progTxt").textContent = `${done}/${total} · uploaded ${sent} · skipped ${skipped} · failed ${failed}`; };
+  setProg(); const t0 = Date.now();
+  try {
+    // parents of the root (e.g. a destination path typed by hand)
+    const rootParts = plan.dirs[0].path.split("/"); let acc = rootParts[0];
+    for (const p of rootParts.slice(1, -1)) { acc += "/" + p; await ensureDir(acc); }
+    const dirs = [...plan.dirs].sort((a, b) => a.path.split("/").length - b.path.split("/").length);
+    for (const d of dirs) {
+      if (stopFlag || !pixl.connected) break;
+      const parent = d.path.slice(0, d.path.lastIndexOf("/"));
+      if (failedDirs.has(parent)) { failedDirs.add(d.path); continue; }
+      const list = await ensureDir(d.path);
+      if (!list) { failedDirs.add(d.path); log("Couldn't create " + d.path, "err"); continue; }
+      listing.set(d.path, new Map(list.filter(i => !i.dir).map(i => [i.name, i.size])));
+    }
+    for (const f of files) {
+      if (stopFlag || !pixl.connected) break;
+      const dir = f.path.slice(0, f.path.lastIndexOf("/")), name = f.path.slice(dir.length + 1);
+      if (failedDirs.has(dir) || !listing.has(dir)) { failed++; done++; setProg(); continue; }
+      if ($("skipExisting").checked && listing.get(dir).get(name) === f.entry.size) { skipped++; done++; setProg(); continue; }
+      try {
+        const buf = new Uint8Array(await f.entry.file.arrayBuffer());
+        await pixl.writeFile(f.path, buf);
+        listing.get(dir).set(name, buf.length); sent++; consecutiveFail = 0;
+      } catch (e) {
+        failed++; consecutiveFail++; log(`Failed: ${f.path} (${e.message})`, "err");
+        if (consecutiveFail >= 5) { log("5 failures in a row. The drive is probably full, so the upload has stopped.", "err"); break; }
+      }
+      done++; setProg();
+    }
+  } catch (e) { log("Upload stopped: " + e.message, "err"); }
+  if (pixl.connected && sent > 0) await verifyPlan(files);
+  pixl.trace = null;
+  log(`Finished in ${Math.round((Date.now() - t0) / 1000)}s. Uploaded ${sent}, skipped ${skipped}, failed ${failed}, ${total - done} not attempted.`, failed || done < total ? "warn" : "ok");
+  uploading = false; ["root", "ascii", "binOnly"].forEach(id => $(id).disabled = false);
+  setStatus(pixl.connected ? "Upload finished." : "Device disconnected.", pixl.connected ? "ok" : "warn");
+  if (pixl.connected) { try { drives = await pixl.drives(); if (cwd) await loadDir(); } catch {} rebuild(); }
+  updateUI();
+};
+
+render(); updateUI();
+</script>
+</body>
+</html>
