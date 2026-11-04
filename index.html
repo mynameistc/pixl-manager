@@ -141,6 +141,7 @@ dialog .msg{white-space:pre-wrap;word-break:break-word}
       <button class="primary" id="start">Start upload</button>
       <button id="stop" disabled>Stop</button>
       <button id="verify" title="Compare these files with what's on the device, without uploading">Verify only</button>
+      <label class="chk"><input type="checkbox" id="deepVerify"> Also read back and compare file contents (slower)</label>
       <span id="progTxt" class="muted"></span>
     </div>
     <div class="bar"><div id="prog"></div></div>
@@ -587,7 +588,7 @@ function render(){
   if (cwd === "") {
     tb.innerHTML = drives.map((d, i) => `<tr><td></td><td class="name" data-drive="${i}"><span class="ic">▣</span>${esc(d.label)}: <span class="muted">${esc(d.name)}</span></td>
       <td class="size" colspan="2">${d.status === 0 ? `<span class="usage"><div style="width:${((d.total - d.free) / d.total * 100).toFixed(1)}%"></div></span>${fmtSize(d.total - d.free)} used of ${fmtSize(d.total)} · ${fmtSize(d.free)} free` : `<span class="err">Not ready (status ${d.status})</span>`}</td>
-      <td class="act"><button data-fmt="${i}" class="danger">Format…</button></td></tr>`).join("");
+      <td class="act"></td></tr>`).join("");
     $("emptyMsg").classList.toggle("hidden", drives.length > 0); $("emptyMsg").textContent = "No drives reported.";
     tb.querySelectorAll("[data-drive]").forEach(el => el.onclick = () => { const d = drives[+el.dataset.drive]; if (d.status !== 0) return; cwd = d.label + ":/"; refresh(); });
     tb.querySelectorAll("[data-fmt]").forEach(el => el.onclick = () => formatDrive(drives[+el.dataset.fmt]));
@@ -678,7 +679,13 @@ $("btnDelSel").onclick = () => deleteItems(selected());
 async function formatDrive(d){
   const v = await dialog({ title: `Format ${d.label}:`, message: `This erases EVERYTHING on drive ${d.label}: (${d.name}).\nType FORMAT to confirm.`, fields: [{ id: "c", label: "" }], ok: "Format", danger: true, validate: v => v.c.trim().toUpperCase() === "FORMAT" ? "" : "Type FORMAT to confirm" });
   if (!v) return;
-  await withBusy("Formatting… this can take a minute", async () => { if (!await pixl.format(d.label)) throw new Error("Format failed"); await loadDrives(); });
+  const ok = await withBusy("Formatting… this can take a minute", async () => { if (!await pixl.format(d.label)) throw new Error("Format failed"); return true; });
+  if (!ok) return;
+  // The firmware formats without re-mounting the drive. Until the device restarts, reads come from a stale view
+  // and anything written is lost. Force a clean restart before any more file operations.
+  try { pixl.disconnect(); } catch {}
+  await dialog({ title: "Restart your Pixl.js now", ok: "OK",
+    message: "Formatting finished, but the Pixl.js doesn't reload its drive until it restarts. Anything uploaded before then can look like it saved but is lost.\n\n1. Turn the Pixl.js off and back on (or take the battery out for a few seconds).\n2. Reconnect here.\n3. Upload key_retail.bin to E:/ first, then your amiibo." });
 }
 
 // ================= upload (files or folders) =================
@@ -793,36 +800,64 @@ function log(msg, cls){ const d = document.createElement("div"); if (cls) d.clas
 let stopFlag = false;
 $("stop").onclick = () => { stopFlag = true; log("Stopping after the current file…", "warn"); };
 
+// On SPIFFS-based firmware, listing a folder that doesn't exist still "works" (returns empty), and a folder
+// only shows up if it was explicitly created. So never trust a listing as proof a folder exists:
+// check it appears in its parent, and create it if not.
+const dirCache = new Map(); // parent path -> Set of child folder names (lower-case)
+async function childDirs(parent){
+  if (dirCache.has(parent)) return dirCache.get(parent);
+  const list = await pixl.readDir(/^[EI]:$/.test(parent) ? parent + "/" : parent);
+  const set = new Set((list || []).filter(i => i.dir).map(i => i.name.toLowerCase()));
+  dirCache.set(parent, set); return set;
+}
+async function dirVisible(path){
+  if (/^[EI]:$/.test(path)) return true;
+  const parent = path.slice(0, path.lastIndexOf("/")), name = path.slice(path.lastIndexOf("/") + 1);
+  return (await childDirs(parent)).has(name.toLowerCase());
+}
 async function ensureDir(path){
   const rp = /^[EI]:$/.test(path) ? path + "/" : path;
-  let list = await pixl.readDir(rp);
-  if (!list) {
+  if (!await dirVisible(path)) {
     const ok = await pixl.mkdir(path);
-    list = await pixl.readDir(rp);
-    if (list) log("Created " + path); else log(`Couldn't create ${path} (mkdir ${ok ? "said OK" : "failed"})`, "err");
+    const parent = path.slice(0, path.lastIndexOf("/"));
+    dirCache.delete(parent);
+    if (await dirVisible(path)) log("Created " + path);
+    else { log(`Couldn't create ${path} (mkdir ${ok ? "said OK" : "failed"})`, "err"); return null; }
   }
-  return list;
+  return await pixl.readDir(rp);
 }
 
 async function verifyPlan(files){
-  log("Checking what's actually on the device…");
+  const deep = $("deepVerify").checked; dirCache.clear();
+  log(deep ? "Checking what's actually on the device, reading every file back…" : "Checking what's actually on the device…");
   const byDir = new Map();
   for (const f of files) { const dir = f.path.slice(0, f.path.lastIndexOf("/")); if (!byDir.has(dir)) byDir.set(dir, []); byDir.get(dir).push(f); }
   let ok = 0, missing = 0, wrong = 0; const bad = [];
   try {
     for (const [dir, fs] of byDir) {
-      const list = await pixl.readDir(/^[EI]:$/.test(dir) ? dir + "/" : dir);
-      if (!list) log(`Folder missing on device: ${dir}`, "err");
+      const visible = await dirVisible(dir);
+      const list = visible ? await pixl.readDir(/^[EI]:$/.test(dir) ? dir + "/" : dir) : null;
+      if (!visible) log(`Folder doesn't show up on the device: ${dir}`, "err");
       const m = new Map((list || []).filter(i => !i.dir).map(i => [i.name, i.size]));
+      let dirOk = 0;
       for (const f of fs) {
         const name = f.path.slice(dir.length + 1), have = m.get(name);
-        if (have === f.entry.size) ok++;
+        if (have === f.entry.size) {
+          if (deep) {
+            const want = new Uint8Array(await f.entry.file.arrayBuffer());
+            let got = null; try { got = await pixl.readFile(f.path); } catch (e) {}
+            const same = got && got.length === want.length && got.every((x, i) => x === want[i]);
+            if (!same) { wrong++; bad.push(f.path + (got ? " (contents don't match)" : " (couldn't read it back)")); continue; }
+          }
+          ok++; dirOk++;
+        }
         else { if (have === undefined) missing++; else wrong++; bad.push(f.path + (have === undefined ? " (missing)" : ` (${have} bytes, expected ${f.entry.size})`)); }
       }
+      log(`  ${dir}: ${dirOk}/${fs.length}` + (list ? ` (device lists ${list.length} item${list.length === 1 ? "" : "s"} here)` : " (folder not found)"), dirOk === fs.length ? "muted" : "err");
     }
     for (const b of bad.slice(0, 50)) log("  ✕ " + b, "err");
     if (bad.length > 50) log(`  …and ${bad.length - 50} more`, "err");
-    log(`Verified: ${ok} of ${files.length} files are on the device and complete.` + (missing ? ` ${missing} missing.` : "") + (wrong ? ` ${wrong} wrong size.` : "") + (bad.length ? " Press Start upload to send just those." : ""), bad.length ? "err" : "ok");
+    log(`Verified: ${ok} of ${files.length} files are on the device and complete.` + (missing ? ` ${missing} missing.` : "") + (wrong ? ` ${wrong} wrong size or contents.` : "") + (bad.length ? " Press Start upload to send just those." : ""), bad.length ? "err" : "ok");
   } catch (e) { log("Couldn't verify: " + e.message, "warn"); }
   return { ok, bad: bad.length };
 }
@@ -837,7 +872,7 @@ $("verify").onclick = async () => {
 };
 $("start").onclick = async () => {
   if (!plan) return;
-  uploading = true; stopFlag = false; updateUI();
+  uploading = true; stopFlag = false; updateUI(); dirCache.clear();
   setStatus("Uploading… see progress below.");
   pixl.trace = $("verbose").checked ? (m => log(m, "muted")) : null;
   log(`Uploading ${plan.files.length} files to ${plan.dirs[0].path}…`);
