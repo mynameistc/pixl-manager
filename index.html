@@ -59,6 +59,25 @@ details{margin-top:6px}summary{cursor:pointer;color:var(--muted);font-size:14px}
 .picklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px 12px;max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:6px;font-size:14px}
 .picklist label{display:flex;gap:6px;align-items:baseline;padding:2px 0;cursor:pointer}
 .picklist .muted{font-size:12px;margin-left:auto;white-space:nowrap}
+.ico{width:15px;height:15px;flex:none;vertical-align:-2px;color:var(--muted)}
+.dest{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px;padding:4px 8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);font-size:14px;min-height:34px}
+.dest a{color:var(--accent);cursor:pointer;padding:1px 3px;border-radius:4px}
+.dest a:hover{background:var(--hover)}
+.dest .sep{color:var(--muted)}
+.qlist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px;max-height:220px;overflow:auto}
+.qitem{display:flex;align-items:center;gap:8px;padding:5px 6px 5px 10px;border-bottom:1px solid var(--line);font-size:14px}
+.qitem:last-child{border-bottom:none}
+.qitem .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qitem .meta{color:var(--muted);font-size:12.5px;white-space:nowrap}
+.qitem button{border:none;background:none;padding:2px 8px;font-size:16px;line-height:1;color:var(--muted)}
+.qitem button:hover{color:var(--err)}
+.qmore{padding:6px 10px;font-size:13px;color:var(--accent);cursor:pointer;background:none;border:none;text-align:left}
+.dirdlg{width:min(520px,calc(100vw - 32px))}
+.dirlist{border:1px solid var(--line);border-radius:8px;height:300px;overflow:auto;margin-top:6px}
+.dirlist .d{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line);cursor:pointer;font-size:14px}
+.dirlist .d:hover{background:var(--hover)}
+.dirlist .d .go{margin-left:auto;color:var(--muted)}
+.dirlist .empty{padding:20px}
 .chip{display:inline-flex;align-items:center;gap:4px;background:var(--code);border-radius:999px;padding:2px 4px 2px 10px;font-size:13px}
 .chip button{border:none;background:none;padding:0 6px;font-size:14px;line-height:1;color:var(--muted)}
 #log{background:var(--code);border-radius:8px;padding:8px 10px;height:150px;overflow:auto;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;margin-top:8px}
@@ -112,10 +131,14 @@ dialog .msg{white-space:pre-wrap;word-break:break-word}
   <section class="card hidden" id="upCard">
     <div class="row" style="justify-content:space-between"><h2 style="margin:0">Upload</h2><button id="upClose">Close</button></div>
     <div class="row" style="margin-top:8px">
-      <span>Upload into</span><input type="text" id="root" spellcheck="false" style="width:260px">
+      <span>Upload into</span>
+      <span id="destPath" class="dest"></span>
+      <button id="destChange">Change…</button>
+      <input type="hidden" id="root">
     </div>
-    <div class="row" style="margin-top:10px">
-      <span class="muted">Queued:</span><span id="queue" class="row" style="gap:6px"></span>
+    <div style="margin-top:12px">
+      <div class="muted" style="font-size:13px;margin-bottom:4px">Queued</div>
+      <div id="queue" class="qlist"></div>
     </div>
     <div class="row" style="margin-top:8px">
       <button id="addFolder">+ Add another folder</button>
@@ -123,7 +146,7 @@ dialog .msg{white-space:pre-wrap;word-break:break-word}
       <span class="note">Or select several folders in Explorer (Ctrl+click) and drag them onto the file list.</span>
     </div>
     <div id="pickWrap" class="hidden" style="margin-top:10px">
-      <div class="row" style="justify-content:space-between"><b style="font-size:14px">Choose which folders to upload</b>
+      <div class="row" style="justify-content:space-between"><b style="font-size:14px" id="pickTitle">Choose which folders to upload</b>
         <span class="row"><button id="pickAll">All</button><button id="pickNone">None</button></span></div>
       <div id="pickList" class="picklist"></div>
     </div>
@@ -151,6 +174,15 @@ dialog .msg{white-space:pre-wrap;word-break:break-word}
   </section>
 </main>
 
+<dialog id="dirDlg" class="dirdlg">
+  <h3>Choose where to upload</h3>
+  <div class="crumbs" id="dirCrumbs"></div>
+  <div class="dirlist" id="dirList"></div>
+  <div class="btns" style="justify-content:space-between">
+    <button id="dirNew" type="button">New folder here</button>
+    <span class="row"><button id="dirCancel" type="button">Cancel</button><button id="dirOk" type="button" class="primary">Upload here</button></span>
+  </div>
+</dialog>
 <dialog id="dlg"><form method="dialog" id="dlgForm"><h3 id="dlgTitle"></h3><div id="dlgBody"></div><div class="btns"><button value="cancel" id="dlgCancel" formnovalidate>Cancel</button><button value="ok" class="primary" id="dlgOk">OK</button></div></form></dialog>
 
 <script>
@@ -719,7 +751,7 @@ wrap.addEventListener("drop", async e => {
 
 // entries keep their top-level folder in rel ("Kirby/01 - Kirby.bin"); "Upload into" is the destination folder
 function setEntries(list, append){
-  if (!append || uploading) { entries = []; excluded = new Set(); $("root").value = cwd; }
+  if (!append || uploading) { entries = []; excluded = new Set(); queueExpanded = false; $("root").value = cwd || "E:/"; renderDest(); }
   const seen = new Set(entries.map(e => e.rel));
   for (const e of list) if (!seen.has(e.rel)) { entries.push(e); seen.add(e.rel); }
   $("binOnly").checked = entries.some(e => /\.bin$/i.test(e.rel));
@@ -741,27 +773,98 @@ const included = () => entries.filter(e => !excluded.has(groupKey(e)));
 function renderPicker(){
   const g = new Map();
   for (const e of entries) { const k = groupKey(e); const o = g.get(k) || { n: 0, sz: 0 }; o.n++; o.sz += Math.max(1, Math.ceil(e.size / 4096)) * 4096; g.set(k, o); }
-  $("pickWrap").classList.toggle("hidden", g.size < 2);
+  // Only useful for picking subfolders out of one big folder; otherwise the Queued list already handles removal
+  const tops = new Set(entries.map(e => e.rel.split("/")[0]));
+  const singleFolder = tops.size === 1 && entries.every(e => e.rel.includes("/"));
+  if (!singleFolder) excluded.clear();
+  $("pickWrap").classList.toggle("hidden", !singleFolder || g.size < 2);
+  if (singleFolder) $("pickTitle").textContent = `Choose which folders inside “${[...tops][0]}” to upload`;
   $("pickList").innerHTML = [...g].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" }))
     .map(([k, o]) => `<label><input type="checkbox" data-k="${esc(k)}" ${excluded.has(k) ? "" : "checked"}> ${esc(k.endsWith("/(files)") ? "Files directly in " + k.split("/")[0] : k.includes("/") ? k.slice(k.indexOf("/") + 1) : k)} <span class="muted">${o.n} · ${fmtSize(o.sz)}</span></label>`).join("");
   $("pickList").querySelectorAll("input").forEach(c => c.onchange = () => { c.checked ? excluded.delete(c.dataset.k) : excluded.add(c.dataset.k); rebuild(); });
 }
 $("pickAll").onclick = () => { excluded.clear(); renderPicker(); rebuild(); };
 $("pickNone").onclick = () => { for (const e of entries) excluded.add(groupKey(e)); renderPicker(); rebuild(); };
+const ICON_FOLDER = '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 3.5h4l1.5 1.5h7.5v8h-13z" fill="currentColor" opacity=".85"/></svg>';
+const ICON_FILE = '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 1.5h6l3 3v10h-9z" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>';
+let queueExpanded = false;
 function renderQueue(){
   renderPicker();
-  const groups = new Map();
-  for (const e of entries) { const k = e.rel.includes("/") ? e.rel.split("/")[0] + "/" : "(loose files)"; groups.set(k, (groups.get(k) || 0) + 1); }
-  $("queue").innerHTML = [...groups].map(([k, n]) => `<span class="chip">${esc(k)} <span class="muted">${n}</span><button data-rm="${esc(k)}" title="Remove">×</button></span>`).join("") || '<span class="muted">nothing</span>';
-  $("queue").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => {
-    if (uploading) return; const k = b.dataset.rm;
-    entries = entries.filter(e => k === "(loose files)" ? e.rel.includes("/") : !e.rel.startsWith(k));
-    excluded = new Set([...excluded].filter(x => !x.startsWith(k)));
+  // one row per queued folder (top level), one row per loose file
+  const folders = new Map(), loose = [];
+  for (const e of entries) {
+    if (e.rel.includes("/")) { const k = e.rel.split("/")[0]; const o = folders.get(k) || { n: 0, sz: 0 }; o.n++; o.sz += e.size; folders.set(k, o); }
+    else loose.push(e);
+  }
+  const rows = [];
+  for (const [k, o] of [...folders].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))) rows.push(`<div class="qitem">${ICON_FOLDER}<span class="nm">${esc(k)}</span><span class="meta">${o.n} file${o.n === 1 ? "" : "s"} · ${fmtSize(o.sz)}</span><button data-rmdir="${esc(k)}" title="Remove from queue">×</button></div>`);
+  const LIMIT = 12, shown = queueExpanded ? loose : loose.slice(0, LIMIT);
+  for (const e of shown) rows.push(`<div class="qitem">${ICON_FILE}<span class="nm">${esc(e.rel)}</span><span class="meta">${fmtSize(e.size)}</span><button data-rmfile="${esc(e.rel)}" title="Remove from queue">×</button></div>`);
+  let more = "";
+  if (loose.length > LIMIT) more = `<button class="qmore" id="qmore">${queueExpanded ? "Show fewer" : `Show all ${loose.length} files`}</button>`;
+  $("queue").innerHTML = rows.join("") + more || '<div class="qitem muted">Nothing queued</div>';
+  if ($("qmore")) $("qmore").onclick = () => { queueExpanded = !queueExpanded; renderQueue(); };
+  $("queue").querySelectorAll("[data-rmdir]").forEach(b => b.onclick = () => {
+    if (uploading) return; const k = b.dataset.rmdir;
+    entries = entries.filter(e => !e.rel.startsWith(k + "/"));
+    excluded = new Set([...excluded].filter(x => !x.startsWith(k + "/") && x !== k));
+    renderQueue(); rebuild();
+  });
+  $("queue").querySelectorAll("[data-rmfile]").forEach(b => b.onclick = () => {
+    if (uploading) return; const k = b.dataset.rmfile;
+    entries = entries.filter(e => e.rel !== k);
     renderQueue(); rebuild();
   });
 }
+
+// ---- destination ("Upload into") ----
+function setRoot(path){
+  path = path || "E:/";
+  if (/^[EI]:$/.test(path)) path += "/";
+  $("root").value = path;
+  renderDest(); rebuild();
+}
+function renderDest(){
+  const p = $("root").value || "E:/";
+  const drive = p.slice(0, 2), parts = p.slice(3).split("/").filter(Boolean);
+  let acc = drive + "/", h = `${ICON_FOLDER}<a data-p="${acc}">${drive}</a>`;
+  for (const part of parts) { acc = join(acc, part); h += `<span class="sep">›</span><a data-p="${esc(acc)}">${esc(part)}</a>`; }
+  $("destPath").innerHTML = h;
+  $("destPath").querySelectorAll("a").forEach(a => a.onclick = () => { if (!uploading) setRoot(a.dataset.p); });
+}
+let dirCwd = "E:/";
+async function dirLoad(){
+  const list = $("dirList");
+  if (!pixl.connected) { list.innerHTML = '<div class="empty">Connect your Pixl.js to browse its folders.</div>'; return; }
+  const drive = dirCwd.slice(0, 2), parts = dirCwd.slice(3).split("/").filter(Boolean);
+  let acc = drive + "/", h = `<a data-p="${acc}">${drive}</a>`;
+  for (const part of parts) { acc = join(acc, part); h += `<span class="sep">›</span><a data-p="${esc(acc)}">${esc(part)}</a>`; }
+  $("dirCrumbs").innerHTML = h;
+  $("dirCrumbs").querySelectorAll("a").forEach(a => a.onclick = () => { dirCwd = a.dataset.p; dirLoad(); });
+  list.innerHTML = '<div class="empty">Loading…</div>';
+  let items = null;
+  try { items = await pixl.readDir(dirCwd); } catch (e) {}
+  const dirs = (items || []).filter(i => i.dir).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  const up = /^[EI]:\/$/.test(dirCwd) ? "" : `<div class="d" data-up="1">${ICON_FOLDER}<span>..</span><span class="go muted">up one level</span></div>`;
+  list.innerHTML = up + (dirs.map(d => `<div class="d" data-n="${esc(d.name)}">${ICON_FOLDER}<span>${esc(d.name)}</span><span class="go">›</span></div>`).join("") || '<div class="empty">No folders here. You can upload here, or make a new folder.</div>');
+  list.querySelectorAll(".d").forEach(el => el.onclick = () => { dirCwd = el.dataset.up ? parentOf(dirCwd) : join(dirCwd, el.dataset.n); dirLoad(); });
+}
+$("destChange").onclick = () => { dirCwd = $("root").value || cwd || "E:/"; $("dirDlg").showModal(); dirLoad(); };
+$("dirCancel").onclick = () => $("dirDlg").close();
+$("dirOk").onclick = () => { setRoot(dirCwd); $("dirDlg").close(); };
+$("dirNew").onclick = async () => {
+  if (!pixl.connected) return;
+  $("dirDlg").close();
+  const v = await dialog({ title: "New folder", message: "Inside " + dirCwd, fields: [{ id: "name", label: "Folder name" }], ok: "Create", validate: v => nameError(dirCwd, v.name.trim()) });
+  $("dirDlg").showModal();
+  if (!v) { dirLoad(); return; }
+  const p = join(dirCwd, v.name.trim());
+  if (await pixl.mkdir(p)) { dirCwd = p; if (cwd) loadDir().catch(() => {}); }
+  else setStatus("Couldn't create the folder (does it already exist?)", "err");
+  dirLoad();
+};
 $("upClose").onclick = () => { if (uploading) return; $("upCard").classList.add("hidden"); entries = []; plan = null; updateUI(); };
-["root", "ascii", "binOnly"].forEach(id => $(id)[id === "root" ? "oninput" : "onchange"] = () => rebuild());
+["ascii", "binOnly"].forEach(id => $(id).onchange = () => rebuild());
 
 function rebuild(){
   let root = $("root").value.trim().replace(/\\/g, "/").replace(/\/+$/, "");
@@ -876,7 +979,7 @@ $("start").onclick = async () => {
   setStatus("Uploading… see progress below.");
   pixl.trace = $("verbose").checked ? (m => log(m, "muted")) : null;
   log(`Uploading ${plan.files.length} files to ${plan.dirs[0].path}…`);
-  ["root", "ascii", "binOnly"].forEach(id => $(id).disabled = true);
+  ["destChange", "ascii", "binOnly"].forEach(id => $(id).disabled = true);
   const files = plan.files, total = files.length;
   let done = 0, sent = 0, skipped = 0, failed = 0, consecutiveFail = 0;
   const failedDirs = new Set(), listing = new Map();
@@ -914,7 +1017,7 @@ $("start").onclick = async () => {
   if (pixl.connected && sent > 0) await verifyPlan(files);
   pixl.trace = null;
   log(`Finished in ${Math.round((Date.now() - t0) / 1000)}s. Uploaded ${sent}, skipped ${skipped}, failed ${failed}, ${total - done} not attempted.`, failed || done < total ? "warn" : "ok");
-  uploading = false; ["root", "ascii", "binOnly"].forEach(id => $(id).disabled = false);
+  uploading = false; ["destChange", "ascii", "binOnly"].forEach(id => $(id).disabled = false);
   setStatus(pixl.connected ? "Upload finished." : "Device disconnected.", pixl.connected ? "ok" : "warn");
   if (pixl.connected) { try { drives = await pixl.drives(); if (cwd) await loadDir(); } catch {} rebuild(); }
   updateUI();
