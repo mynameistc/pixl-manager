@@ -23,6 +23,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .muted{color:var(--muted)}.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}
 .hidden{display:none!important}
+.foot{text-align:center;color:var(--muted);font-size:12px;margin-top:8px}
 .crumbs{display:flex;flex-wrap:wrap;gap:2px;align-items:center;font-size:14px;margin:4px 0 10px}
 .crumbs a{color:var(--accent);cursor:pointer;text-decoration:none;padding:2px 4px;border-radius:4px}
 .crumbs a:hover{background:var(--hover)}
@@ -172,6 +173,7 @@ dialog .msg{white-space:pre-wrap;word-break:break-word}
     <div id="log"></div>
     <p class="note">Limits: names up to 47 bytes, full path (starting with <code>E:</code>) up to 63 bytes. If the upload stops partway, press Start again and finished files are skipped.</p>
   </section>
+  <footer class="foot">Pixl.js Manager <span id="appVersion"></span></footer>
 </main>
 
 <dialog id="dirDlg" class="dirdlg">
@@ -480,6 +482,12 @@ class Pixl {
     if (err) throw err;
   }
 }
+
+// ================= version (bump on every release) =================
+const APP_VERSION = "1.9.0";
+const APP_BUILD = "2026-11-06";
+document.getElementById("appVersion").textContent = `v${APP_VERSION} · built ${APP_BUILD}`;
+console.log("Pixl.js Manager", APP_VERSION, APP_BUILD);
 
 // ================= helpers =================
 const $ = id => document.getElementById(id);
