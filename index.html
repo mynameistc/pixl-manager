@@ -468,13 +468,28 @@ class Pixl {
     try { const r = await this.request(0x14, new Uint8Array([id]), 30000); if (r.status !== 0) throw new Error("read failed (status " + r.status + ")"); return r.data; }
     finally { await this.request(0x13, new Uint8Array([id])).catch(() => {}); }
   }
+  // Some devices (e.g. Flashiibo) reject large Bluetooth packets with a GATT error. If that happens,
+  // retry the whole file with smaller packets and remember the size that works.
   async writeFile(path, buf){
+    const SIZES = [MAX_FRAME_DATA - 1, 180, 120, 60, 20];
+    if (this.chunk === undefined) this.chunk = SIZES[0];
+    while (true) {
+      try { return await this._writeFileOnce(path, buf, this.chunk); }
+      catch (e) {
+        const smaller = SIZES.find(x => x < this.chunk);
+        if (!/GATT|NotSupported|Network|too large|length/i.test(e.message || "") || !smaller || !this.connected) throw e;
+        this.chunk = smaller;
+        this.onChunkChange && this.onChunkChange(smaller, e);
+      }
+    }
+  }
+  async _writeFileOnce(path, buf, chunk){
     const o = await this.request(0x12, new Writer().str(path).u8(0x16).bytes());
     if (o.status !== 0) throw new Error("open failed (status " + o.status + ")");
     const id = o.data[0]; let err = null;
     try {
-      for (let off = 0; off < buf.length; off += MAX_FRAME_DATA - 1) {
-        const part = buf.subarray(off, Math.min(buf.length, off + MAX_FRAME_DATA - 1));
+      for (let off = 0; off < buf.length; off += chunk) {
+        const part = buf.subarray(off, Math.min(buf.length, off + chunk));
         const p = new Uint8Array(1 + part.length); p[0] = id; p.set(part, 1);
         const w = await this.request(0x15, p);
         if (w.status !== 0) throw new Error("write failed (status " + w.status + ")");
@@ -487,8 +502,8 @@ class Pixl {
 }
 
 // ================= version (bump on every release) =================
-const APP_VERSION = "1.11.0";
-const APP_BUILD = "2026-11-06";
+const APP_VERSION = "1.13.0";
+const APP_BUILD = "2026-11-07";
 document.getElementById("appVersion").textContent = `v${APP_VERSION} · built ${APP_BUILD}`;
 console.log("Pixl.js Manager", APP_VERSION, APP_BUILD);
 
@@ -595,6 +610,7 @@ $("connect").onclick = async () => {
   updateUI();
 };
 $("disconnect").onclick = () => pixl.disconnect();
+pixl.onChunkChange = (n, e) => log(`Bluetooth rejected a packet (${e.message}). Retrying with smaller packets (${n} bytes).`, "warn");
 pixl.onDisconnect = () => {
   $("devInfo").textContent = "Disconnected";
   items = []; render(); setStatus("Device disconnected.", "warn"); updateUI();
@@ -632,7 +648,7 @@ function render(){
   if (!pixl.connected) { tb.innerHTML = ""; $("emptyMsg").textContent = "Connect your Pixl.js to browse its files."; $("emptyMsg").classList.remove("hidden"); return; }
   if (cwd === "") {
     tb.innerHTML = drives.map((d, i) => `<tr><td></td><td class="name" data-drive="${i}"><span class="ic">▣</span>${esc(d.label)}: <span class="muted">${esc(d.name)}</span></td>
-      <td class="size" colspan="2">${d.status === 0 ? `<span class="usage"><div style="width:${((d.total - d.free) / d.total * 100).toFixed(1)}%"></div></span>${fmtSize(d.total - d.free)} used of ${fmtSize(d.total)} · ${fmtSize(d.free)} free` : `<span class="err">Not ready (status ${d.status})</span>`}</td>
+      <td class="size" colspan="2">${d.status !== 0 ? `<span class="err">Not ready (status ${d.status})</span>` : (d.total > 0 && d.free > 0 && d.free <= d.total) ? `<span class="usage"><div style="width:${((d.total - d.free) / d.total * 100).toFixed(1)}%"></div></span>${fmtSize(d.total - d.free)} used of ${fmtSize(d.total)} · ${fmtSize(d.free)} free` : `<span class="muted">${d.total > 0 ? fmtSize(d.total) + " total · " : ""}free space not reported</span>`}</td>
       <td class="act"></td></tr>`).join("");
     $("emptyMsg").classList.toggle("hidden", drives.length > 0); $("emptyMsg").textContent = "No drives reported.";
     tb.querySelectorAll("[data-drive]").forEach(el => el.onclick = () => { const d = drives[+el.dataset.drive]; if (d.status !== 0) return; cwd = d.label + ":/"; refresh(); });
@@ -994,7 +1010,7 @@ function rebuild(){
   const bad = plan.files.filter(f => f.tooLong);
   const bytes = plan.files.reduce((a, f) => a + f.entry.size, 0);
   plan.estimate = plan.files.reduce((a, f) => a + Math.max(1, Math.ceil(f.entry.size / 4096)) * 4096, 0) + (plan.dirs.length - 1) * 8192;
-  $("stats").innerHTML = [[plan.files.length, "files"], [plan.dirs.length - 1, "folders"], [ren.length, "renamed"], [plan.skipped.length, "skipped"], [fmtSize(bytes), "data"], ["≈ " + fmtSize(plan.estimate), "space on device"]]
+  $("stats").innerHTML = [[plan.files.length, "files"], [plan.dirs.length - 1, "folders"], [ren.length, "renamed"], [plan.skipped.length, "skipped"], [fmtSize(bytes), "data"]]
     .map(([b, s]) => `<div class="stat"><b>${esc(b)}</b><span>${s}</span></div>`).join("");
   let notes = "";
   if (bad.length) notes += `<p class="err">${bad.length} files still can't fit. Shorten the destination path.</p>`;
@@ -1014,7 +1030,9 @@ function rebuild(){
   $("skipDet").style.display = plan.skipped.length ? "" : "none";
   $("skipTbl").innerHTML = "<tr><th>File</th><th>Why</th></tr>" + plan.skipped.map(s => `<tr><td>${esc(s.rel)}</td><td>${esc(s.why)}</td></tr>`).join("");
   const d = drives.find(x => x.label === root[0]);
-  $("spaceNote").textContent = d && d.status === 0 ? `Drive ${d.label}: has ${fmtSize(d.free)} free. This upload needs about ${fmtSize(plan.estimate)}. Each file uses at least one 4 KB block.` + (plan.estimate > d.free ? " It probably won't all fit. The upload stops when the drive is full." : "") : "";
+  // Only show what the device itself reports, and only when the numbers make sense
+  const sane = d && d.status === 0 && d.total > 0 && d.free > 0 && d.free <= d.total;
+  $("spaceNote").textContent = sane ? `Device reports ${fmtSize(d.free)} free of ${fmtSize(d.total)}.` : "";
   updateUI();
 }
 function log(msg, cls){ const d = document.createElement("div"); if (cls) d.className = cls; d.textContent = msg; const L = $("log"); L.appendChild(d); while (L.childNodes.length > 800) L.removeChild(L.firstChild); L.scrollTop = L.scrollHeight; }
@@ -1130,7 +1148,12 @@ $("start").onclick = async () => {
         listing.get(dir).set(name, buf.length); sent++; consecutiveFail = 0;
       } catch (e) {
         failed++; consecutiveFail++; log(`Failed: ${f.path} (${e.message})`, "err");
-        if (consecutiveFail >= 5) { log("5 failures in a row. The drive is probably full, so the upload has stopped.", "err"); break; }
+        if (consecutiveFail >= 5) {
+          const full = /status/.test(e.message || "");
+          log(full ? "5 failures in a row and the device refused the files. The drive is probably full, so the upload has stopped."
+                   : "5 failures in a row from Bluetooth errors, so the upload has stopped. Try disconnecting, restarting the device, reconnecting and pressing Start again.", "err");
+          break;
+        }
       }
       done++; setProg();
     }
