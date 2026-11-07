@@ -113,6 +113,8 @@ dialog .msg{white-space:pre-wrap;word-break:break-word}
       <button id="btnNewFolder">New folder</button>
       <button id="btnUpFiles">Upload files</button>
       <button id="btnUpFolder" class="primary">Upload folder</button>
+      <button id="btnZip" title="Download the selected items, or this whole folder if nothing is selected, as a .zip">Download as .zip</button>
+      <button id="btnZipStop" class="hidden">Stop download</button>
       <button id="btnDelSel" class="danger">Delete selected</button>
       <input type="file" id="pickFiles" multiple class="hidden">
       <input type="file" id="pickFolder" webkitdirectory directory multiple class="hidden">
@@ -155,6 +157,7 @@ dialog .msg{white-space:pre-wrap;word-break:break-word}
       <label class="chk"><input type="checkbox" id="binOnly" checked> Only .bin files</label>
       <label class="chk"><input type="checkbox" id="ascii"> Replace accented letters (é→e)</label>
       <label class="chk"><input type="checkbox" id="skipExisting" checked> Skip files already on the device (same name and size)</label>
+      <label class="chk" title="Flashiibo and Pixl.js devices can crash with more than 100 files in one folder"><input type="checkbox" id="splitBig" checked> Split folders over 100 files into parts</label>
       <label class="chk"><input type="checkbox" id="verbose"> Detailed log</label>
     </div>
     <div class="stats" id="stats"></div>
@@ -484,7 +487,7 @@ class Pixl {
 }
 
 // ================= version (bump on every release) =================
-const APP_VERSION = "1.9.0";
+const APP_VERSION = "1.11.0";
 const APP_BUILD = "2026-11-06";
 document.getElementById("appVersion").textContent = `v${APP_VERSION} · built ${APP_BUILD}`;
 console.log("Pixl.js Manager", APP_VERSION, APP_BUILD);
@@ -559,6 +562,8 @@ function updateUI(){
   $("btnUpFiles").disabled = !inDir || lock;
   $("btnUpFolder").disabled = !inDir || lock;
   $("btnDelSel").disabled = !inDir || lock || !selected().length;
+  $("btnZip").disabled = !inDir || lock;
+  $("btnZip").textContent = selected().length ? `Download ${selected().length} selected as .zip` : "Download this folder as .zip";
   $("start").disabled = !c || uploading || !plan || !plan.files.length;
   $("verify").disabled = !c || uploading || !plan || !plan.files.length;
   $("addFolder").disabled = $("addFiles").disabled = uploading;
@@ -639,7 +644,7 @@ function render(){
     <td class="name" data-i="${i}"><span class="ic">${it.dir ? "▸" : "·"}</span>${esc(it.name)}${SPECIAL[join(cwd, it.name).slice(2).toLowerCase()] ? '<span class="badge" title="Used by the firmware">system</span>' : ""}${it.meta.readonly ? '<span class="badge">read-only</span>' : ""}${it.meta.hide ? '<span class="badge">hidden</span>' : ""}</td>
     <td class="size">${it.dir ? '<span class="muted">folder</span>' : fmtSize(it.size)}</td>
     <td class="size notes muted">${esc(it.meta.notes)}</td>
-    <td class="act">${it.dir ? "" : `<button data-dl="${i}" title="Download">⤓</button> `}<button data-ren="${i}">Rename</button> <button data-prop="${i}">Properties</button> <button data-del="${i}" class="danger">Delete</button></td></tr>`).join("");
+    <td class="act"><button data-dl="${i}" title="${it.dir ? "Download folder as .zip" : "Download"}">⤓</button> <button data-ren="${i}">Rename</button> <button data-prop="${i}">Properties</button> <button data-del="${i}" class="danger">Delete</button></td></tr>`).join("");
   $("emptyMsg").textContent = "This folder is empty. Drag files or a folder here to upload.";
   $("emptyMsg").classList.toggle("hidden", items.length > 0);
   tb.querySelectorAll("td.name").forEach(el => el.onclick = () => { const it = items[+el.dataset.i]; if (it.dir) { cwd = join(cwd, it.name); refresh(); } else download(it); });
@@ -680,7 +685,76 @@ async function editProps(it){
   await withBusy("Saving…", async () => { if (!await pixl.setMeta(join(cwd, it.name), { ...it.meta, notes: v.notes, hide: v.hide, readonly: v.readonly })) throw new Error("Couldn't save properties"); await loadDir(); });
 }
 
+function saveBlob(blob, name){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// ---- minimal .zip writer (stored, no compression; UTF-8 names) ----
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8){ let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function makeZip(entries){ // [{name, data:Uint8Array|null (folder)}]
+  const parts = [], central = []; let offset = 0;
+  const d = new Date(), dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  for (const e of entries) {
+    const name = te.encode(e.data ? e.name : e.name.replace(/\/?$/, "/")), data = e.data || new Uint8Array(0), crc = crc32(data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, dosTime, true); lh.setUint16(12, dosDate, true); lh.setUint32(14, crc, true);
+    lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+    parts.push(new Uint8Array(lh.buffer), name, data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+    ch.setUint16(12, dosTime, true); ch.setUint16(14, dosDate, true); ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true);
+    ch.setUint16(28, name.length, true); ch.setUint32(38, e.data ? 0 : 0x10, true); ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), name);
+    offset += 30 + name.length + data.length;
+  }
+  const cdSize = central.reduce((a, p) => a + p.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: "application/zip" });
+}
+
+let zipStop = false;
+async function downloadZip(list, zipName){
+  zipStop = false; busy = true; updateUI();
+  $("btnZipStop").classList.remove("hidden"); $("btnZipStop").disabled = false;
+  const out = [], failed = []; let n = 0;
+  async function walk(path, rel, isDir){
+    if (zipStop) return;
+    if (isDir) {
+      const kids = await pixl.readDir(path) || [];
+      out.push({ name: rel, data: null });
+      for (const k of kids) await walk(join(path, k.name), rel + "/" + k.name, k.dir);
+    } else {
+      try { out.push({ name: rel, data: await pixl.readFile(path) }); }
+      catch (e) { failed.push(rel + " (" + e.message + ")"); }
+      n++; setStatus(`Downloading… ${n} files` + (failed.length ? `, ${failed.length} failed` : ""));
+    }
+  }
+  try {
+    for (const it of list) await walk(join(cwd, it.name), it.name, it.dir);
+    if (zipStop) { setStatus("Download stopped. Nothing was saved.", "warn"); return; }
+    if (failed.length) out.push({ name: "_FAILED_FILES.txt", data: te.encode("These files could not be read from the device:\r\n" + failed.join("\r\n")) });
+    saveBlob(makeZip(out), zipName);
+    setStatus(`Saved ${zipName}: ${n - failed.length} files` + (failed.length ? `. ${failed.length} couldn't be read (listed in _FAILED_FILES.txt inside the zip).` : "."), failed.length ? "warn" : "ok");
+  } catch (e) { setStatus("Download failed: " + e.message, "err"); }
+  finally { busy = false; $("btnZipStop").classList.add("hidden"); updateUI(); }
+}
+$("btnZipStop").onclick = () => { zipStop = true; $("btnZipStop").disabled = true; setStatus("Stopping…"); };
+$("btnZip").onclick = () => {
+  const sel = selected(), stamp = new Date().toISOString().slice(0, 10);
+  const here = cwd.replace(/\/$/, "").split("/").pop().replace(":", "") || "drive";
+  if (sel.length === 1 && sel[0].dir) return downloadZip(sel, `${sel[0].name} ${stamp}.zip`);
+  if (sel.length) return downloadZip(sel, `${here} selection ${stamp}.zip`);
+  downloadZip(items, `${/^[EI]:\/$/.test(cwd) ? "Pixl backup" : here} ${stamp}.zip`);
+};
+
 async function download(it){
+  if (it.dir) return downloadZip([it], `${it.name} ${new Date().toISOString().slice(0, 10)}.zip`);
   await withBusy("Downloading " + it.name + "…", async () => {
     const data = await pixl.readFile(join(cwd, it.name));
     const url = URL.createObjectURL(new Blob([data], { type: "application/octet-stream" }));
@@ -872,8 +946,36 @@ $("dirNew").onclick = async () => {
   dirLoad();
 };
 $("upClose").onclick = () => { if (uploading) return; $("upCard").classList.add("hidden"); entries = []; plan = null; updateUI(); };
-["ascii", "binOnly"].forEach(id => $(id).onchange = () => rebuild());
+["ascii", "binOnly", "splitBig"].forEach(id => $(id).onchange = () => rebuild());
 
+const MAX_PER_FOLDER = 100;
+// Move files of any folder with > MAX_PER_FOLDER files into "<folder> 1", "<folder> 2", … subfolders' siblings
+function splitBigFolders(plan){
+  const byDir = new Map();
+  for (const f of plan.files) { const d = f.path.slice(0, f.path.lastIndexOf("/")); if (!byDir.has(d)) byDir.set(d, []); byDir.get(d).push(f); }
+  const out = [];
+  for (const [dir, fs] of byDir) {
+    if (fs.length <= MAX_PER_FOLDER) continue;
+    const parts = Math.ceil(fs.length / MAX_PER_FOLDER);
+    const parent = dir.slice(0, dir.lastIndexOf("/")), base = dir.slice(dir.lastIndexOf("/") + 1);
+    const isRoot = plan.dirs.some(d => d.isRoot && d.path === dir);
+    for (let p = 0; p < parts; p++) {
+      const suf = ` ${p + 1}`;
+      // part folders go inside the folder when it's the upload root, otherwise next to it
+      const name = isRoot ? `Part${suf}` : truncBytes(base, LIMIT_NAME - blen(suf)) + suf;
+      const newDir = isRoot ? dir + "/" + name : parent + "/" + name;
+      plan.dirs.push({ orig: "", path: newDir, renamed: true });
+      for (const f of fs.slice(p * MAX_PER_FOLDER, (p + 1) * MAX_PER_FOLDER)) {
+        const fn = f.path.slice(dir.length + 1);
+        f.path = newDir + "/" + fn; f.renamed = true;
+        if (blen(f.path) > LIMIT_PATH) f.tooLong = true;
+      }
+    }
+    if (!isRoot) { const i = plan.dirs.findIndex(d => d.path === dir); if (i >= 0 && !plan.files.some(f => f.path.startsWith(dir + "/"))) plan.dirs.splice(i, 1); }
+    out.push({ dir, parts });
+  }
+  return out;
+}
 function rebuild(){
   let root = $("root").value.trim().replace(/\\/g, "/").replace(/\/+$/, "");
   if (!/^[EI]:/.test(root)) root = (cwd || "E:/").slice(0, 2) + "/" + root.replace(/^\/+/, "");
@@ -887,6 +989,7 @@ function rebuild(){
     list = list.map(e => ({ ...e, rel: e.rel.slice(merged.length + 1) }));
   }
   plan = planUpload(list, { root, binOnly: $("binOnly").checked, asciiOnly: $("ascii").checked });
+  const split = $("splitBig").checked ? splitBigFolders(plan) : [];
   const ren = [...plan.dirs.filter(d => d.renamed && !d.isRoot), ...plan.files.filter(f => f.renamed)];
   const bad = plan.files.filter(f => f.tooLong);
   const bytes = plan.files.reduce((a, f) => a + f.entry.size, 0);
@@ -898,6 +1001,13 @@ function rebuild(){
   else if (!ren.length && plan.files.length) notes += `<p class="ok">Every name already fits. Nothing will be renamed.</p>`;
   if (merged) notes = `<p class="note">Putting the contents of “${esc(merged)}” straight into ${esc(root)} (not ${esc(root)}/${esc(merged)}).</p>` + notes;
   if (plan.files.length) notes = `<p class="note">Files will go to paths like <code>${esc(plan.files[0].path)}</code></p>` + notes;
+  // folders over the per-folder limit
+  const counts = new Map();
+  for (const f of plan.files) { const d = f.path.slice(0, f.path.lastIndexOf("/")); counts.set(d, (counts.get(d) || 0) + 1); }
+  const over = [...counts].filter(([, n]) => n > MAX_PER_FOLDER), atLimit = [...counts].filter(([, n]) => n === MAX_PER_FOLDER);
+  if (split.length) notes += `<p class="warn">Split ${split.length} folder${split.length === 1 ? "" : "s"} with more than ${MAX_PER_FOLDER} files into parts: ${split.map(x => `${esc(x.dir.split("/").pop())} → ${x.parts} parts`).join(", ")}.</p>`;
+  if (over.length) notes += `<p class="err">⚠ ${over.length} folder${over.length === 1 ? " has" : "s have"} more than ${MAX_PER_FOLDER} files, which can crash the device: ${over.map(([d, n]) => `${esc(d.split("/").pop())} (${n})`).join(", ")}. Tick “Split folders over 100 files” or split them yourself.</p>`;
+  if (atLimit.length) notes += `<p class="warn">${atLimit.length} folder${atLimit.length === 1 ? " is" : "s are"} at exactly ${MAX_PER_FOLDER} files: ${atLimit.map(([d]) => esc(d.split("/").pop())).join(", ")}. That's allowed, but adding more files there later will go over the limit.</p>`;
   $("planNotes").innerHTML = notes;
   $("renDet").style.display = ren.length ? "" : "none";
   $("renTbl").innerHTML = "<tr><th>Original</th><th>On Pixl.js</th></tr>" + ren.map(r => `<tr><td>${esc(r.orig)}</td><td>${esc(r.path)}</td></tr>`).join("");
@@ -987,7 +1097,7 @@ $("start").onclick = async () => {
   setStatus("Uploading… see progress below.");
   pixl.trace = $("verbose").checked ? (m => log(m, "muted")) : null;
   log(`Uploading ${plan.files.length} files to ${plan.dirs[0].path}…`);
-  ["destChange", "ascii", "binOnly"].forEach(id => $(id).disabled = true);
+  ["destChange", "ascii", "binOnly", "splitBig"].forEach(id => $(id).disabled = true);
   const files = plan.files, total = files.length;
   let done = 0, sent = 0, skipped = 0, failed = 0, consecutiveFail = 0;
   const failedDirs = new Set(), listing = new Map();
@@ -1005,6 +1115,9 @@ $("start").onclick = async () => {
       const list = await ensureDir(d.path);
       if (!list) { failedDirs.add(d.path); log("Couldn't create " + d.path, "err"); continue; }
       listing.set(d.path, new Map(list.filter(i => !i.dir).map(i => [i.name, i.size])));
+      const incoming = files.filter(f => f.path.slice(0, f.path.lastIndexOf("/")) === d.path).map(f => f.path.slice(d.path.length + 1));
+      const total = new Set([...listing.get(d.path).keys(), ...incoming]).size;
+      if (total > MAX_PER_FOLDER) log(`⚠ ${d.path} will have ${total} files after this upload (limit ${MAX_PER_FOLDER}). The device may crash opening it.`, "err");
     }
     for (const f of files) {
       if (stopFlag || !pixl.connected) break;
@@ -1025,7 +1138,7 @@ $("start").onclick = async () => {
   if (pixl.connected && sent > 0) await verifyPlan(files);
   pixl.trace = null;
   log(`Finished in ${Math.round((Date.now() - t0) / 1000)}s. Uploaded ${sent}, skipped ${skipped}, failed ${failed}, ${total - done} not attempted.`, failed || done < total ? "warn" : "ok");
-  uploading = false; ["destChange", "ascii", "binOnly"].forEach(id => $(id).disabled = false);
+  uploading = false; ["destChange", "ascii", "binOnly", "splitBig"].forEach(id => $(id).disabled = false);
   setStatus(pixl.connected ? "Upload finished." : "Device disconnected.", pixl.connected ? "ok" : "warn");
   if (pixl.connected) { try { drives = await pixl.drives(); if (cwd) await loadDir(); } catch {} rebuild(); }
   updateUI();
